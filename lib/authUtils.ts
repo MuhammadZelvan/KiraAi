@@ -1,7 +1,16 @@
 // Authentication utilities and user storage
 // In production, this would be replaced with actual API calls
 
-import type { User } from "@/components/usermanage/UserManageTable";
+export type User = {
+    id: string;
+    name: string;
+    email: string;
+    password?: string;
+    role?: string;
+    status?: string;
+    avatar?: string;
+    joinDate?: string;
+};
 
 // Storage keys
 const USERS_STORAGE_KEY = "kiraai_users";

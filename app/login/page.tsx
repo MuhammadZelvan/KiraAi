@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import type { User } from "@/components/usermanage/UserManageTable";
+
+type User = { id: string; name: string; email: string; password?: string; role?: string; status?: string; };
 
 export default function LoginPage() {
     const router = useRouter();
