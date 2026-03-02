@@ -24,7 +24,7 @@ export default function LoginPage() {
 
         // Get users from localStorage
         const usersData = typeof window !== 'undefined'
-            ? localStorage.getItem('kiraai_users')
+            ? localStorage.getItem('lyraai_users')
             : null;
 
         const users: User[] = usersData ? JSON.parse(usersData) : [];
@@ -66,7 +66,7 @@ export default function LoginPage() {
         }
 
         // Save current user to localStorage
-        localStorage.setItem('kiraai_current_user', JSON.stringify(user));
+        localStorage.setItem('lyraai_current_user', JSON.stringify(user));
 
         // Success
         toast({
@@ -120,7 +120,7 @@ export default function LoginPage() {
 
                     {/* Title */}
                     <h1 className="mb-1 text-2xl font-semibold text-foreground">
-                        Sign in to KiraAi
+                        Sign in to LyraAI
                     </h1>
                     <p className="mb-6 text-sm text-muted-foreground">
                         Trusted by +50,000 professionals world wide.

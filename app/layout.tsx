@@ -6,8 +6,8 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "KiraAI - AI Chatbot Dashboard",
-  description: "Manage your AI chatbot with powerful analytics and user management",
+  title: "LyraAI",
+  description: "LyraAI — Your intelligent AI chatbot assistant",
 };
 
 export default function RootLayout({

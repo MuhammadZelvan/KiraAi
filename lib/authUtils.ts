@@ -13,8 +13,8 @@ export type User = {
 };
 
 // Storage keys
-const USERS_STORAGE_KEY = "kiraai_users";
-const CURRENT_USER_KEY = "kiraai_current_user";
+const USERS_STORAGE_KEY = "lyraai_users";
+const CURRENT_USER_KEY = "lyraai_current_user";
 
 // Get all users from storage
 export function getStoredUsers(): User[] {
