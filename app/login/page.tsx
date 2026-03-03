@@ -77,7 +77,7 @@ export default function LoginPage() {
         // Navigate based on role
         setTimeout(() => {
             if (user.role === "admin") {
-                router.push("/analytics");
+                router.push("/dashboard");
             } else {
                 router.push("/user");
             }

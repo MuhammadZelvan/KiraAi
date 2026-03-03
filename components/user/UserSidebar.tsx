@@ -33,6 +33,7 @@ interface UserSidebarProps {
   activeChatId: string | null;
   onChatSelect: (id: string) => void;
   onChatDelete: (id: string) => void;
+  onChatArchive?: (id: string) => void;
   onNewChat: () => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
@@ -55,6 +56,7 @@ function SidebarContent({
   activeChatId,
   onChatSelect,
   onChatDelete,
+  onChatArchive,
   onNewChat,
   isCollapsed,
   onToggleCollapse,
@@ -81,7 +83,7 @@ function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       {/* Header: Logo + Collapse */}
-      <div className="flex h-14 items-center justify-between border-b border-border px-4 shrink-0">
+      <div className="flex h-14 items-center justify-between px-4 shrink-0">
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             <Image src="/logo.png" alt="LyraAI" width={32} height={32} className="rounded-xl object-contain" />
@@ -124,11 +126,6 @@ function SidebarContent({
           </Button>
         )}
 
-        {/* Features label */}
-        {!isCollapsed && (
-          <p className="mb-2 px-2 text-xs font-medium text-muted-foreground">Features</p>
-        )}
-
         {/* Feature nav items */}
         <nav className="space-y-0.5">
           {menuItems.map((item) => (
@@ -158,24 +155,40 @@ function SidebarContent({
                 <p className="mb-2 px-2 text-xs font-medium text-primary">Today</p>
                 <div className="space-y-0.5">
                   {todayChats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      className={cn(
-                        "group flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors cursor-pointer",
-                        activeChatId === chat.id ? "bg-muted" : "hover:bg-muted/60"
-                      )}
-                      onClick={() => handleChatSelect(chat.id)}
-                    >
-                      <span className="truncate text-muted-foreground">{chat.title}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
-                        onClick={(e) => { e.stopPropagation(); onChatDelete(chat.id); }}
+                    <DropdownMenu key={chat.id}>
+                      <div
+                        className={cn(
+                          "group flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors cursor-pointer",
+                          activeChatId === chat.id ? "bg-muted" : "hover:bg-muted/60"
+                        )}
+                        onClick={() => handleChatSelect(chat.id)}
                       >
-                        <Trash2 className="h-3 w-3 text-destructive" />
-                      </Button>
-                    </div>
+                        <span className="truncate text-muted-foreground flex-1">{chat.title}</span>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                              <circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" />
+                            </svg>
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </div>
+                      <DropdownMenuContent side="right" align="start" className="w-40">
+                        <DropdownMenuItem onClick={() => { onChatArchive?.(chat.id); onMobileClose?.(); }}>
+                          <Archive className="mr-2 h-4 w-4" /> Archive
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={(e) => { e.stopPropagation(); onChatDelete(chat.id); }}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ))}
                 </div>
               </div>
@@ -186,24 +199,40 @@ function SidebarContent({
                 <p className="mb-2 px-2 text-xs font-medium text-primary">Yesterday</p>
                 <div className="space-y-0.5">
                   {yesterdayChats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      className={cn(
-                        "group flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors cursor-pointer",
-                        activeChatId === chat.id ? "bg-muted" : "hover:bg-muted/60"
-                      )}
-                      onClick={() => handleChatSelect(chat.id)}
-                    >
-                      <span className="truncate text-muted-foreground">{chat.title}</span>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
-                        onClick={(e) => { e.stopPropagation(); onChatDelete(chat.id); }}
+                    <DropdownMenu key={chat.id}>
+                      <div
+                        className={cn(
+                          "group flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors cursor-pointer",
+                          activeChatId === chat.id ? "bg-muted" : "hover:bg-muted/60"
+                        )}
+                        onClick={() => handleChatSelect(chat.id)}
                       >
-                        <Trash2 className="h-3 w-3 text-destructive" />
-                      </Button>
-                    </div>
+                        <span className="truncate text-muted-foreground flex-1">{chat.title}</span>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                              <circle cx="4" cy="10" r="1.5" /><circle cx="10" cy="10" r="1.5" /><circle cx="16" cy="10" r="1.5" />
+                            </svg>
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </div>
+                      <DropdownMenuContent side="right" align="start" className="w-40">
+                        <DropdownMenuItem onClick={() => { onChatArchive?.(chat.id); onMobileClose?.(); }}>
+                          <Archive className="mr-2 h-4 w-4" /> Archive
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={(e) => { e.stopPropagation(); onChatDelete(chat.id); }}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   ))}
                 </div>
               </div>
@@ -226,7 +255,7 @@ function SidebarContent({
       </div>
 
       {/* Bottom: Settings + Help + (User account if logged in) */}
-      <div className="border-t border-border p-3 shrink-0">
+      <div className="p-3 shrink-0">
         <nav className="space-y-0.5">
           <button
             onClick={() => handleViewChange("settings")}
@@ -302,7 +331,7 @@ export function UserSidebar(props: UserSidebarProps) {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "hidden md:flex h-screen flex-col border-r border-border bg-card transition-all duration-300 shrink-0",
+          "hidden md:flex h-screen flex-col border-r border-border bg-background transition-all duration-300 shrink-0",
           props.isCollapsed ? "w-16" : "w-64"
         )}
       >

@@ -11,7 +11,7 @@ import { CommandMenu } from "./CommandMenu";
 import { ProfilePopover } from "./ProfilePopover";
 
 const routeNames: Record<string, string> = {
-  "/": "Dashboard",
+  "/dashboard": "Dashboard",
   "/email": "Email & Message",
   "/analytics": "Analytics",
   "/users": "User Manage",

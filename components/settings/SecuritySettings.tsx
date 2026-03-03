@@ -39,7 +39,7 @@ export function SecuritySettings() {
 
     const activeSessions = [
         { id: "1", device: "Windows 11 — Chrome", ip: "192.168.1.101", location: "Jakarta, ID", lastActive: "Now", current: true },
-        { id: "2", device: "Mobile — KiraAI App", ip: "192.168.1.105", location: "Jakarta, ID", lastActive: "2 hours ago", current: false },
+        { id: "2", device: "Mobile — LyraAI App", ip: "192.168.1.105", location: "Jakarta, ID", lastActive: "2 hours ago", current: false },
     ];
 
     const handleSave = () => {

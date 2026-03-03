@@ -1,34 +1,65 @@
 "use client";
 
-import { useState } from "react";
-import { Search, LayoutGrid, List, SlidersHorizontal } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Search, LayoutGrid, List, SlidersHorizontal, ArchiveRestore, Trash2, MessageCircle, Calendar } from "lucide-react";
 import Image from "next/image";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { Chat } from "@/app/user/page";
 
 type ViewMode = "kanban" | "list";
+type SortOption = "newest" | "oldest" | "az" | "za";
 
 interface UserArchivedProps {
     isLoggedIn?: boolean;
     onLoginRequest?: () => void;
+    archivedChats?: Chat[];
+    onUnarchive?: (id: string) => void;
+    onDelete?: (id: string) => void;
 }
 
-export function UserArchived({ isLoggedIn = false, onLoginRequest }: UserArchivedProps) {
+export function UserArchived({
+    isLoggedIn = false,
+    onLoginRequest,
+    archivedChats = [],
+    onUnarchive,
+    onDelete,
+}: UserArchivedProps) {
     const [viewMode, setViewMode] = useState<ViewMode>("kanban");
     const [search, setSearch] = useState("");
+    const [sortBy, setSortBy] = useState<SortOption>("newest");
 
-    // For now, archived is always empty (no backend yet)
-    const isEmpty = true;
+    const filtered = useMemo(() => {
+        let items = [...archivedChats];
+        if (search.trim()) {
+            items = items.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()));
+        }
+        switch (sortBy) {
+            case "oldest": items = items.reverse(); break;
+            case "az": items = items.sort((a, b) => a.title.localeCompare(b.title)); break;
+            case "za": items = items.sort((a, b) => b.title.localeCompare(a.title)); break;
+            default: break; // newest = insertion order
+        }
+        return items;
+    }, [archivedChats, search, sortBy]);
+
+    const isEmpty = filtered.length === 0;
 
     return (
         <div className="flex h-full flex-col">
             {/* Page header */}
-            <div className="border-b border-border bg-card px-6 py-4 shrink-0">
+            <div className="bg-background px-6 py-4 shrink-0">
                 <h1 className="text-xl font-semibold text-foreground">Archived</h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
                     {isLoggedIn
-                        ? "Here's a quick overview of your archived conversations!"
+                        ? "Your archived conversations are stored here."
                         : "Login to view your archived conversations"}
                 </p>
 
@@ -40,7 +71,7 @@ export function UserArchived({ isLoggedIn = false, onLoginRequest }: UserArchive
                             onClick={() => setViewMode("kanban")}
                             className={cn(
                                 "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                                viewMode === "kanban" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+                                viewMode === "kanban" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                             )}
                         >
                             <LayoutGrid className="h-4 w-4" />
@@ -50,7 +81,7 @@ export function UserArchived({ isLoggedIn = false, onLoginRequest }: UserArchive
                             onClick={() => setViewMode("list")}
                             className={cn(
                                 "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                                viewMode === "list" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+                                viewMode === "list" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                             )}
                         >
                             <List className="h-4 w-4" />
@@ -64,52 +95,117 @@ export function UserArchived({ isLoggedIn = false, onLoginRequest }: UserArchive
                         <Input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            placeholder="Search Archived"
+                            placeholder="Search archived..."
                             className="pl-9 h-9 rounded-lg"
                         />
                     </div>
 
                     {/* Sort */}
-                    <Button variant="outline" size="sm" className="gap-2 h-9">
-                        <SlidersHorizontal className="h-4 w-4" />
-                        Sort by
-                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="gap-2 h-9">
+                                <SlidersHorizontal className="h-4 w-4" />
+                                Sort by
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setSortBy("newest")}>Newest first</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setSortBy("oldest")}>Oldest first</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setSortBy("az")}>A → Z</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setSortBy("za")}>Z → A</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto bg-background">
-                {isEmpty ? (
-                    /* Empty state */
-                    <div className="flex h-full flex-col items-center justify-center gap-5 px-4">
-                        <div className="relative">
-                            <Image
-                                src="/archieved.png"
-                                alt="No archived data"
-                                width={220}
-                                height={220}
-                                className="object-contain"
-                                priority
-                            />
-                        </div>
-                        <div className="text-center space-y-1.5">
-                            <h3 className="text-lg font-semibold text-foreground">No Archived Data</h3>
-                            <p className="text-sm text-muted-foreground max-w-xs">
-                                {isLoggedIn
-                                    ? "Archived conversations, files, and records will be displayed here for future reference."
-                                    : "Login to access and manage your archived conversations."}
+            <div className="flex-1 overflow-y-auto bg-background px-6">
+                {!isLoggedIn ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-4">
+                        <p className="text-muted-foreground text-sm">You need to be logged in to view archives.</p>
+                        <Button onClick={onLoginRequest}>Sign in</Button>
+                    </div>
+                ) : isEmpty ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+                        <Image src="/archieved.png" alt="No archived conversations" width={200} height={200} className="object-contain opacity-70" priority />
+                        <div>
+                            <h3 className="text-base font-semibold text-foreground">No Archived Conversations</h3>
+                            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+                                {search.trim()
+                                    ? "No results match your search."
+                                    : "Hover over a chat in the sidebar and click ••• to archive it."}
                             </p>
                         </div>
-                        {!isLoggedIn && (
-                            <Button onClick={onLoginRequest} className="px-6">
-                                Sign in to view archives
-                            </Button>
-                        )}
+                    </div>
+                ) : viewMode === "kanban" ? (
+                    /* ── Kanban grid ── */
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 py-4">
+                        {filtered.map((chat) => (
+                            <div key={chat.id} className="group rounded-2xl border border-border bg-muted/30 p-4 hover:bg-muted/50 transition-all duration-200">
+                                <div className="flex items-start justify-between mb-3">
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+                                        <MessageCircle className="h-4 w-4 text-primary" />
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                            variant="ghost" size="icon"
+                                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                            title="Unarchive"
+                                            onClick={() => onUnarchive?.(chat.id)}
+                                        >
+                                            <ArchiveRestore className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost" size="icon"
+                                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                            title="Delete"
+                                            onClick={() => onDelete?.(chat.id)}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                                <p className="text-sm font-medium text-foreground line-clamp-2">{chat.title}</p>
+                                <div className="flex items-center gap-1 mt-2">
+                                    <Calendar className="h-3 w-3 text-muted-foreground" />
+                                    <p className="text-xs text-muted-foreground capitalize">{chat.date}</p>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 ) : (
-                    <div className="p-6">
-                        {/* Future: render archived items here */}
-                        <p className="text-sm text-muted-foreground">Archived items will appear here.</p>
+                    /* ── List view ── */
+                    <div className="py-4 space-y-2">
+                        {filtered.map((chat) => (
+                            <div key={chat.id} className="group flex items-center justify-between rounded-xl border border-border bg-muted/20 px-4 py-3 hover:bg-muted/40 transition-colors">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
+                                        <MessageCircle className="h-4 w-4 text-primary" />
+                                    </div>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-medium text-foreground truncate">{chat.title}</p>
+                                        <p className="text-xs text-muted-foreground capitalize">{chat.date}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0 ml-2">
+                                    <Button
+                                        variant="ghost" size="sm"
+                                        className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                                        onClick={() => onUnarchive?.(chat.id)}
+                                    >
+                                        <ArchiveRestore className="h-3.5 w-3.5" />
+                                        Unarchive
+                                    </Button>
+                                    <Button
+                                        variant="ghost" size="icon"
+                                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                        onClick={() => onDelete?.(chat.id)}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

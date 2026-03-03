@@ -162,9 +162,9 @@ export function LoginDialog({ open, onOpenChange, onLoginSuccess }: LoginDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-8 gap-0">
+      <DialogContent className="w-[calc(100%-2rem)] sm:max-w-md p-6 sm:p-8 gap-0 rounded-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto">
         {/* Logo */}
-        <Image src="/logo.png" alt="LyraAI" width={40} height={40} className="mb-4 rounded-xl object-contain" />
+        <Image src="/logo.png" alt="LyraAI" width={40} height={40} className="mb-4 rounded-xl object-contain drop-shadow-sm" />
 
         <DialogHeader className="text-left space-y-1 p-0 mb-5">
           <DialogTitle className="text-xl font-semibold">

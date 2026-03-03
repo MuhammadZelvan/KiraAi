@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/sidebar";
 
 const generalItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Email & Message", url: "/email", icon: Mail },
   { title: "Analytics", url: "/analytics", icon: BarChart3 },
   { title: "User Manage", url: "/users", icon: Users },
@@ -79,14 +79,14 @@ export function AppSidebar() {
         <div className="relative h-10 w-10">
           <Image
             src="/logo.png"
-            alt="KiraAI Logo"
+            alt="LyraAI Logo"
             fill
             className="object-contain"
             priority
           />
         </div>
         {!collapsed && (
-          <span className="text-lg font-semibold text-foreground">KiraAI</span>
+          <span className="text-lg font-semibold text-foreground">LyraAI</span>
         )}
       </div>
 
