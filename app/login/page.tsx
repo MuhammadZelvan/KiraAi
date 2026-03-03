@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import type { User } from "@/components/usermanage/UserManageTable";
+
+type User = { id: string; name: string; email: string; password?: string; role?: string; status?: string; };
 
 export default function LoginPage() {
     const router = useRouter();
@@ -21,9 +22,27 @@ export default function LoginPage() {
         e.preventDefault();
         setIsLoading(true);
 
+        // --- TEMPORARY ADMIN ACCESS ---
+        if (email.toLowerCase() === "admin" && password === "admin123") {
+            const adminUser: User = {
+                id: "admin-bypass",
+                name: "System Administrator",
+                email: "admin@lyraai.com",
+                role: "admin",
+                status: "Active"
+            };
+            localStorage.setItem('lyraai_current_user', JSON.stringify(adminUser));
+            toast({
+                title: "Admin Access Granted",
+                description: "Bypassing directly to Admin Dashboard...",
+            });
+            setTimeout(() => router.push("/dashboard"), 500);
+            return;
+        }
+
         // Get users from localStorage
         const usersData = typeof window !== 'undefined'
-            ? localStorage.getItem('kiraai_users')
+            ? localStorage.getItem('lyraai_users')
             : null;
 
         const users: User[] = usersData ? JSON.parse(usersData) : [];
@@ -65,7 +84,7 @@ export default function LoginPage() {
         }
 
         // Save current user to localStorage
-        localStorage.setItem('kiraai_current_user', JSON.stringify(user));
+        localStorage.setItem('lyraai_current_user', JSON.stringify(user));
 
         // Success
         toast({
@@ -76,9 +95,9 @@ export default function LoginPage() {
         // Navigate based on role
         setTimeout(() => {
             if (user.role === "admin") {
-                router.push("/analytics");
+                router.push("/dashboard");
             } else {
-                router.push("/chat");
+                router.push("/user");
             }
         }, 500);
     };
@@ -119,7 +138,7 @@ export default function LoginPage() {
 
                     {/* Title */}
                     <h1 className="mb-1 text-2xl font-semibold text-foreground">
-                        Sign in to KiraAi
+                        Sign in to LyraAI
                     </h1>
                     <p className="mb-6 text-sm text-muted-foreground">
                         Trusted by +50,000 professionals world wide.
