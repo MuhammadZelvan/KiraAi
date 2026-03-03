@@ -21,7 +21,7 @@ export function GeneralSettings() {
     const [timezone, setTimezone] = useState("Asia/Jakarta");
     const [dateFormat, setDateFormat] = useState("DD/MM/YYYY");
     const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
-    const [dashboardName, setDashboardName] = useState("KiraAI Admin");
+    const [dashboardName, setDashboardName] = useState("LyraAI Admin");
     const [autoRefresh, setAutoRefresh] = useState("30");
 
     const languages = [
@@ -59,7 +59,7 @@ export function GeneralSettings() {
         setTimezone("Asia/Jakarta");
         setDateFormat("DD/MM/YYYY");
         setDensity("comfortable");
-        setDashboardName("KiraAI Admin");
+        setDashboardName("LyraAI Admin");
         setAutoRefresh("30");
         toast({
             title: "Settings Reset",

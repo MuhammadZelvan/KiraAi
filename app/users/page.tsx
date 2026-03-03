@@ -30,7 +30,7 @@ export default function UsersPage() {
     // Initialize from localStorage or use initial data
     const [users, setUsers] = useState<User[]>(() => {
         if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('kiraai_users');
+            const saved = localStorage.getItem('lyraai_users');
             if (saved) {
                 return JSON.parse(saved);
             }
@@ -43,7 +43,7 @@ export default function UsersPage() {
     // Sync to localStorage whenever users change
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            localStorage.setItem('kiraai_users', JSON.stringify(users));
+            localStorage.setItem('lyraai_users', JSON.stringify(users));
         }
     }, [users]);
 

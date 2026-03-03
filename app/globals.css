@@ -3,10 +3,10 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
-/* KiraAI Dashboard Design System */
+/* LyraAI Dashboard Design System */
 
 :root {
-  --background: 0 0% 98%;
+  --background: 0 0% 100%;
   --foreground: 220 13% 18%;
   --card: 0 0% 100%;
   --card-foreground: 220 13% 18%;
@@ -44,9 +44,9 @@
 }
 
 .dark {
-  --background: 220 13% 10%;
+  --background: 220 13% 12%;
   --foreground: 0 0% 98%;
-  --card: 220 13% 13%;
+  --card: 220 13% 12%;
   --card-foreground: 0 0% 98%;
   --popover: 220 13% 13%;
   --popover-foreground: 0 0% 98%;
@@ -135,4 +135,43 @@ body {
     opacity: 0;
     transform: scale(0.95);
   }
+}
+
+/* ── Logo animations ── */
+@keyframes logo-float {
+
+  0%,
+  100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+
+  25% {
+    transform: translateY(-10px) rotate(2deg) scale(1.03);
+  }
+
+  50% {
+    transform: translateY(-16px) rotate(0deg) scale(1.05);
+  }
+
+  75% {
+    transform: translateY(-8px) rotate(-2deg) scale(1.02);
+  }
+}
+
+@keyframes logo-glow {
+
+  0%,
+  100% {
+    filter: drop-shadow(0 0 12px rgba(110, 66, 253, 0.4)) drop-shadow(0 8px 24px rgba(110, 66, 253, 0.2));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 28px rgba(110, 66, 253, 0.7)) drop-shadow(0 12px 36px rgba(110, 66, 253, 0.4));
+  }
+}
+
+.logo-animated {
+  animation:
+    logo-float 4s ease-in-out infinite,
+    logo-glow 3s ease-in-out infinite;
 }

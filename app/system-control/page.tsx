@@ -905,8 +905,8 @@ export default function SystemControlPage() {
                 <DialogContent className="sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle>Add New Integration</DialogTitle>
-                        <DialogDescription>
-                            Connect a new service or tool to your KiraAI system.
+                        <DialogDescription className="text-sm text-muted-foreground mb-4">
+                            Connect a new service or tool to your LyraAI system.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
