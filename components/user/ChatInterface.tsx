@@ -3,8 +3,14 @@
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import {
-  Mic, ArrowUp, Paperclip, Settings2, Globe,
-  ChevronDown, MessageCircle, MoreHorizontal,
+  Mic,
+  ArrowUp,
+  Paperclip,
+  Settings2,
+  Globe,
+  ChevronDown,
+  MessageCircle,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +21,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
+import { sendChat } from "@/lib/api";
+import { getChatHistory } from "@/lib/api";
+import { streamChat } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 
 export interface Message {
   id: string;
@@ -25,7 +37,7 @@ export interface Message {
 interface RecentChat {
   id: string;
   title: string;
-  date: "today" | "yesterday";
+  created_at: string;
 }
 
 interface ChatInterfaceProps {
@@ -36,6 +48,8 @@ interface ChatInterfaceProps {
   recentChats?: RecentChat[];
   onChatSelect?: (id: string) => void;
   onFirstMessage?: (text: string) => void;
+
+  onChatCreated?: (id: string) => void;
 }
 
 const models = ["Grock 4.1", "GPT 3.5", "Gemini 3"];
@@ -48,6 +62,7 @@ export function ChatInterface({
   recentChats = [],
   onChatSelect,
   onFirstMessage,
+  onChatCreated,
 }: ChatInterfaceProps) {
   const [message, setMessage] = useState("");
   const [selectedModel, setSelectedModel] = useState("Grock 4.1");
@@ -56,22 +71,51 @@ export function ChatInterface({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const conversationId = activeChatId ?? null;
 
-  // Auto-scroll to bottom when messages change
+  function formatChatDate(date: string) {
+    const now = new Date();
+    const created = new Date(date);
+
+    const diffDays =
+      (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (diffDays < 1) return "Today";
+    if (diffDays < 2) return "Yesterday";
+    if (diffDays < 7) return "This week";
+
+    return created.toLocaleDateString();
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!activeChatId || isGuest) {
+      setMessages([]);
+      return;
+    }
 
-  // Reset messages when activeChatId changes (switching chats)
-  useEffect(() => {
-    setMessages([]);
-  }, [activeChatId]);
+    async function loadHistory() {
+      try {
+        const data = await getChatHistory(activeChatId);
 
-  const handleSend = () => {
+        const formatted = data.map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+        }));
+
+        setMessages(formatted);
+      } catch {
+        console.error("History load failed");
+      }
+    }
+
+    loadHistory();
+  }, [activeChatId, isGuest]);
+
+  const handleSend = async () => {
     const trimmed = message.trim();
     if (!trimmed) return;
 
-    // If this is the very first message in a new chat, notify parent to set title
     if (messages.length === 0) {
       onFirstMessage?.(trimmed);
     }
@@ -81,20 +125,44 @@ export function ChatInterface({
       role: "user",
       content: trimmed,
     };
+
     setMessages((prev) => [...prev, userMsg]);
     setMessage("");
 
-    // Simulate AI response
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}-ai`,
-          role: "assistant",
-          content: `This is a simulated response from ${selectedModel}. The backend is not connected yet.`,
+    // Buat placeholder AI message kosong
+    const aiId = `msg-${Date.now()}-ai`;
+
+    setMessages((prev) => [
+      ...prev,
+      { id: aiId, role: "assistant", content: "" },
+    ]);
+
+    try {
+      await streamChat(
+        trimmed,
+        activeChatId ?? null,
+        (chunk) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiId ? { ...m, content: m.content + chunk } : m,
+            ),
+          );
         },
-      ]);
-    }, 600);
+        (meta) => {
+          if (!activeChatId && meta.conversationId) {
+            onChatCreated?.(meta.conversationId);
+          }
+        },
+      );
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiId
+            ? { ...m, content: "Terjadi kesalahan saat streaming AI." }
+            : m,
+        ),
+      );
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -107,7 +175,10 @@ export function ChatInterface({
   const handleMicClick = () => {
     if (isRecording) {
       setIsRecording(false);
-      toast({ title: "Recording Stopped", description: "Voice added to chat." });
+      toast({
+        title: "Recording Stopped",
+        description: "Voice added to chat.",
+      });
       setMessage((prev) => prev + (prev ? " " : "") + "(Voice Message)");
     } else {
       setIsRecording(true);
@@ -117,11 +188,18 @@ export function ChatInterface({
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) toast({ title: "File Attached", description: `${file.name} ready to send.` });
+    if (file)
+      toast({
+        title: "File Attached",
+        description: `${file.name} ready to send.`,
+      });
   };
 
   const handleToolSettings = () => {
-    toast({ title: "Tool Settings", description: "Opening tool configurations..." });
+    toast({
+      title: "Tool Settings",
+      description: "Opening tool configurations...",
+    });
   };
 
   const hasMessages = messages.length > 0;
@@ -129,9 +207,18 @@ export function ChatInterface({
   const lastThreeChats = recentChats.slice(0, 3);
 
   const guestCards = [
-    { title: "Ask Anything", description: "Get instant answers to your questions" },
-    { title: "Summarize Text", description: "Paste any text and let AI summarize it" },
-    { title: "Write Code", description: "Ask LyraAI to help you write or debug code" },
+    {
+      title: "Ask Anything",
+      description: "Get instant answers to your questions",
+    },
+    {
+      title: "Summarize Text",
+      description: "Paste any text and let AI summarize it",
+    },
+    {
+      title: "Write Code",
+      description: "Ask LyraAI to help you write or debug code",
+    },
   ];
 
   // Shared input area — inline JSX to prevent re-mount on each keystroke
@@ -148,7 +235,11 @@ export function ChatInterface({
       <div className="mt-2 flex items-center justify-between">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground text-sm h-8 px-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-muted-foreground text-sm h-8 px-2"
+            >
               <Globe className="h-4 w-4" />
               <span className="hidden sm:inline">{selectedModel}</span>
               <ChevronDown className="h-3 w-3" />
@@ -156,13 +247,16 @@ export function ChatInterface({
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             {models.map((m) => (
-              <DropdownMenuItem key={m} onClick={() => setSelectedModel(m)}>{m}</DropdownMenuItem>
+              <DropdownMenuItem key={m} onClick={() => setSelectedModel(m)}>
+                {m}
+              </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex items-center gap-1.5">
           <Button
-            variant="ghost" size="icon"
+            variant="ghost"
+            size="icon"
             className={`h-8 w-8 ${isRecording ? "text-red-500 animate-pulse" : "text-muted-foreground"}`}
             onClick={handleMicClick}
           >
@@ -183,9 +277,15 @@ export function ChatInterface({
 
   const quickActions = (
     <div className="mt-3 flex items-center gap-2">
-      <input type="file" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
+      <input
+        type="file"
+        className="hidden"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+      />
       <Button
-        variant="ghost" size="sm"
+        variant="ghost"
+        size="sm"
         className="gap-2 text-sm rounded-full text-muted-foreground hover:text-foreground hover:bg-muted h-8 px-3"
         onClick={() => fileInputRef.current?.click()}
       >
@@ -193,7 +293,8 @@ export function ChatInterface({
         <span className="hidden sm:inline">Add Attachment</span>
       </Button>
       <Button
-        variant="ghost" size="sm"
+        variant="ghost"
+        size="sm"
         className="gap-2 text-sm rounded-full text-muted-foreground hover:text-foreground hover:bg-muted h-8 px-3"
         onClick={handleToolSettings}
       >
@@ -225,7 +326,12 @@ export function ChatInterface({
             </p>
             {isGuest && (
               <p className="mt-3 text-sm text-muted-foreground bg-muted/50 px-4 py-1.5 rounded-full border border-border">
-                <button onClick={onLoginRequest} className="text-primary hover:underline font-medium">Login</button>{" "}
+                <button
+                  onClick={onLoginRequest}
+                  className="text-primary hover:underline font-medium"
+                >
+                  Login
+                </button>{" "}
                 to save your conversation history
               </p>
             )}
@@ -247,9 +353,11 @@ export function ChatInterface({
                     <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
                       <MessageCircle className="h-4 w-4 text-primary" />
                     </div>
-                    <p className="text-sm font-medium text-foreground leading-snug line-clamp-2">{chat.title}</p>
+                    <p className="text-sm font-medium text-foreground leading-snug line-clamp-2">
+                      {chat.title}
+                    </p>
                     <p className="mt-1 text-xs text-muted-foreground capitalize">
-                      {chat.date === "today" ? "Today" : "Yesterday"}
+                      {formatChatDate(chat.created_at)}
                     </p>
                   </div>
                 ))}
@@ -268,8 +376,12 @@ export function ChatInterface({
                     <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
                       <MessageCircle className="h-4 w-4 text-primary" />
                     </div>
-                    <p className="text-sm font-medium text-foreground">{card.title}</p>
-                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{card.description}</p>
+                    <p className="text-sm font-medium text-foreground">
+                      {card.title}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                      {card.description}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -282,14 +394,52 @@ export function ChatInterface({
           <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-6">
             <div className="mx-auto max-w-3xl space-y-4">
               {messages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                >
                   <div
-                    className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === "user"
-                      ? "bg-primary text-primary-foreground rounded-br-md"
-                      : "bg-muted text-foreground rounded-bl-md"
-                      }`}
+                    className={`max-w-[85%] md:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-primary text-primary-foreground rounded-br-md"
+                        : "bg-muted text-foreground rounded-bl-md"
+                    }`}
                   >
-                    {msg.content}
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                        components={{
+                          h1: ({ children }) => (
+                            <h1 className="text-lg font-semibold mt-4">
+                              {children}
+                            </h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 className="text-base font-semibold mt-3">
+                              {children}
+                            </h2>
+                          ),
+                          ul: ({ children }) => (
+                            <ul className="list-disc pl-5 space-y-1">
+                              {children}
+                            </ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="list-decimal pl-5 space-y-1">
+                              {children}
+                            </ol>
+                          ),
+                          code: ({ children }) => (
+                            <code className="bg-muted px-1 py-0.5 rounded text-sm">
+                              {children}
+                            </code>
+                          ),
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               ))}

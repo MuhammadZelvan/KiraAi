@@ -8,219 +8,334 @@ import { LoginDialog } from "@/components/user/LoginDialog";
 import { UserSettings } from "@/components/user/UserSettings";
 import { UserHelp } from "@/components/user/UserHelp";
 import { UserArchived } from "@/components/user/UserArchived";
+import { getMe } from "@/lib/api";
+import { deleteConversation } from "@/lib/api";
+import { archiveConversation, unarchiveConversation } from "@/lib/api";
+import { logout } from "@/lib/api";
+import { groupChats } from "@/lib/utils";
 
 export interface Chat {
-    id: string;
-    title: string;
-    date: "today" | "yesterday";
-    archived?: boolean;
-    messages?: { role: "user" | "assistant"; content: string }[];
+  id: string;
+  title: string;
+  created_at: string;
+  archived?: boolean;
+  messages?: { role: "user" | "assistant"; content: string }[];
 }
 
 export default function ChatPage() {
-    const [isLoggedIn, setIsLoggedIn] = useState(() => {
-        if (typeof window === "undefined") return false;
-        return localStorage.getItem("lyra_isLoggedIn") === "true";
-    });
-    const [userName, setUserName] = useState(() => {
-        if (typeof window === "undefined") return "Guest";
-        return localStorage.getItem("lyra_userName") ?? "Guest";
-    });
-    const [userEmail, setUserEmail] = useState(() => {
-        if (typeof window === "undefined") return "";
-        return localStorage.getItem("lyra_userEmail") ?? "";
-    });
-    const [loginOpen, setLoginOpen] = useState(false);
-    const [activeView, setActiveView] = useState<"chat" | "archived" | "library" | "settings" | "help">("chat");
-    const [chats, setChats] = useState<Chat[]>(() => {
-        if (typeof window === "undefined") return [];
-        try { return JSON.parse(localStorage.getItem("lyra_chats") ?? "[]"); } catch { return []; }
-    });
-    const [archivedChats, setArchivedChats] = useState<Chat[]>(() => {
-        if (typeof window === "undefined") return [];
-        try { return JSON.parse(localStorage.getItem("lyra_archivedChats") ?? "[]"); } catch { return []; }
-    });
-    const [activeChatId, setActiveChatId] = useState<string | null>(null);
-    const [isCollapsed, setIsCollapsed] = useState(false);
-    const [headerSearch, setHeaderSearch] = useState("");
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userName, setUserName] = useState("Guest");
+  const [userEmail, setUserEmail] = useState("");
 
-    // Persist chats to localStorage whenever they change
-    useEffect(() => { localStorage.setItem("lyra_chats", JSON.stringify(chats)); }, [chats]);
-    useEffect(() => { localStorage.setItem("lyra_archivedChats", JSON.stringify(archivedChats)); }, [archivedChats]);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [activeView, setActiveView] = useState<
+    "chat" | "archived" | "library" | "settings" | "help"
+  >("chat");
 
-    // ── Auth ──────────────────────────────────────────────
-    const handleLoginDialogChange = (open: boolean) => {
-        setLoginOpen(open);
-        if (!open) sessionStorage.setItem("login-popup-dismissed", "true");
-    };
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [archivedChats, setArchivedChats] = useState<Chat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
 
-    const handleLoginSuccess = (name: string, email: string) => {
-        setIsLoggedIn(true);
-        setUserName(name);
-        setUserEmail(email);
-        setLoginOpen(false);
-        localStorage.setItem("lyra_isLoggedIn", "true");
-        localStorage.setItem("lyra_userName", name);
-        localStorage.setItem("lyra_userEmail", email);
-    };
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [headerSearch, setHeaderSearch] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingChats, setLoadingChats] = useState(false);
 
-    const handleLogout = () => {
+  // ===============================
+  // AUTH CHECK (STABLE VERSION)
+  // ===============================
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const data = await getMe();
+
+        if (data?.id) {
+          setIsLoggedIn(true);
+          setUserName(data.email);
+          setUserEmail(data.email);
+
+          await loadConversations(true); // ← load sidebar data
+        } else {
+          setIsLoggedIn(false);
+        }
+      } catch {
         setIsLoggedIn(false);
-        setUserName("Guest");
-        setUserEmail("");
-        setChats([]);
-        setArchivedChats([]);
+      } finally {
+        setAuthLoading(false); // ← INI WAJIB
+      }
+    }
+
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    const reload = () => {
+      setOffset(0);
+      setHasMore(true);
+      loadConversations(true);
+    };
+
+    window.addEventListener("conversations-updated", reload);
+
+    return () => {
+      window.removeEventListener("conversations-updated", reload);
+    };
+  }, []);
+
+  // ===============================
+  // LOGIN HANDLER
+  // ===============================
+  const handleLoginSuccess = async (name: string, email: string) => {
+    setIsLoggedIn(true);
+    setUserName(name);
+    setUserEmail(email);
+    setLoginOpen(false);
+
+    setOffset(0);
+    setHasMore(true);
+
+    await loadConversations(true); // reset pagination
+  };
+
+  // ===============================
+  // LOGOUT HANDLER
+  // ===============================
+  const handleLogout = async () => {
+    try {
+      await logout();
+
+      setIsLoggedIn(false);
+      setChats([]);
+      setActiveChatId(null);
+
+      window.dispatchEvent(new Event("conversations-updated"));
+    } catch (err) {
+      console.error("Logout failed");
+    }
+  };
+
+  const loadConversations = async (reset = false) => {
+    if (loadingChats) return;
+
+    setLoadingChats(true);
+
+    const res = await fetch(
+      `http://localhost:4000/chat/conversations?limit=20&offset=${reset ? 0 : offset}`,
+      { credentials: "include" },
+    );
+
+    if (!res.ok) {
+      setLoadingChats(false);
+      return;
+    }
+
+    const data = await res.json();
+
+    const mapped = data.map((c: any) => ({
+      id: c.id,
+      title: c.title ?? "New conversation",
+      created_at: c.created_at,
+    }));
+
+    if (reset) {
+      setChats(mapped);
+      setOffset(20);
+    } else {
+      setChats((prev) => [...prev, ...mapped]);
+      setOffset((prev) => prev + 20);
+    }
+
+    if (data.length < 20) setHasMore(false);
+
+    setLoadingChats(false);
+  };
+
+  // ===============================
+  // NEW CHAT (NO FAKE ID)
+  // ===============================
+  const handleNewChat = useCallback(() => {
+    setActiveChatId(null); // backend will create conversation
+    setActiveView("chat");
+  }, []);
+
+  // ===============================
+  // DELETE CHAT (frontend only for now)
+  // ===============================
+  const handleDeleteChat = async (id: string) => {
+    try {
+      await deleteConversation(id);
+
+      setChats((prev) => prev.filter((c) => c.id !== id));
+
+      if (activeChatId === id) {
         setActiveChatId(null);
-        localStorage.removeItem("lyra_isLoggedIn");
-        localStorage.removeItem("lyra_userName");
-        localStorage.removeItem("lyra_userEmail");
-        localStorage.removeItem("lyra_chats");
-        localStorage.removeItem("lyra_archivedChats");
-        sessionStorage.removeItem("login-popup-dismissed");
-    };
+      }
+    } catch (err) {
+      console.error("Delete failed");
+    }
+  };
 
-    // ── Chats ─────────────────────────────────────────────
-    const handleNewChat = useCallback(() => {
-        const newChat: Chat = {
-            id: `chat-${Date.now()}`,
-            title: "New conversation",
-            date: "today",
-            messages: [],
-        };
-        setChats((prev) => [newChat, ...prev]);
-        setActiveChatId(newChat.id);
-        setActiveView("chat");
-    }, []);
+  // ===============================
+  // ARCHIVE (keep your old behavior)
+  // ===============================
+  const handleArchiveChat = useCallback(
+    async (id: string) => {
+      try {
+        await archiveConversation(id);
 
-    const handleDeleteChat = (id: string) => {
-        setChats((prev) => prev.filter((c) => c.id !== id));
-        if (activeChatId === id) setActiveChatId(null);
-    };
-
-    /** Called when the user sends their very first message — auto-sets the chat title */
-    const handleFirstMessage = useCallback((text: string) => {
-        // Take first ~40 chars of first message as title
-        const title = text.length > 40 ? text.slice(0, 40) + "..." : text;
-        setChats((prev) =>
-            prev.map((c) => (c.id === activeChatId ? { ...c, title } : c))
-        );
-    }, [activeChatId]);
-
-    // ── Archive / Unarchive ───────────────────────────────
-    const handleArchiveChat = useCallback((id: string) => {
         const chat = chats.find((c) => c.id === id);
         if (!chat) return;
+
         setChats((prev) => prev.filter((c) => c.id !== id));
         setArchivedChats((prev) => [{ ...chat, archived: true }, ...prev]);
-        if (activeChatId === id) setActiveChatId(null);
-    }, [chats, activeChatId]);
 
-    const handleUnarchiveChat = useCallback((id: string) => {
+        if (activeChatId === id) setActiveChatId(null);
+      } catch (err) {
+        console.error("Archive failed");
+      }
+    },
+    [chats, activeChatId],
+  );
+
+  const handleUnarchiveChat = useCallback(
+    async (id: string) => {
+      try {
+        await unarchiveConversation(id);
+
         const chat = archivedChats.find((c) => c.id === id);
         if (!chat) return;
+
         setArchivedChats((prev) => prev.filter((c) => c.id !== id));
         setChats((prev) => [{ ...chat, archived: false }, ...prev]);
-    }, [archivedChats]);
+      } catch (err) {
+        console.error("Unarchive failed");
+      }
+    },
+    [archivedChats],
+  );
 
-    const handleDeleteArchived = useCallback((id: string) => {
-        setArchivedChats((prev) => prev.filter((c) => c.id !== id));
-    }, []);
+  const handleDeleteArchived = useCallback(async (id: string) => {
+    try {
+      await deleteConversation(id);
+      setArchivedChats((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      console.error("Delete failed");
+    }
+  }, []);
 
-    // ── Share ─────────────────────────────────────────────
-    const handleShareChat = useCallback((id: string) => {
-        const chat = chats.find((c) => c.id === id);
-        const shareUrl = `${window.location.origin}/shared/${id}`;
-        navigator.clipboard.writeText(shareUrl).then(() => {
-            // toast is handled in UserHeader
-        }).catch(() => { });
-        return shareUrl;
-    }, [chats]);
+  // ===============================
+  // SEARCH
+  // ===============================
+  const filteredChats = headerSearch.trim()
+    ? chats.filter((c) =>
+        c.title.toLowerCase().includes(headerSearch.toLowerCase()),
+      )
+    : chats;
 
-    // ── Search ────────────────────────────────────────────
-    const filteredChats = headerSearch.trim()
-        ? chats.filter((c) => c.title.toLowerCase().includes(headerSearch.toLowerCase()))
-        : chats;
+  const groupedChats = groupChats(filteredChats);
 
-    // ── Rendering ─────────────────────────────────────────
-    const renderContent = () => {
-        switch (activeView) {
-            case "chat":
-                return (
-                    <ChatInterface
-                        userName={isLoggedIn ? userName : "Guest"}
-                        activeChatId={activeChatId}
-                        isGuest={!isLoggedIn}
-                        onLoginRequest={() => setLoginOpen(true)}
-                        recentChats={filteredChats.slice(0, 3)}
-                        onChatSelect={(id) => { setActiveChatId(id); setActiveView("chat"); }}
-                        onFirstMessage={handleFirstMessage}
-                    />
-                );
-            case "archived":
-                return (
-                    <UserArchived
-                        isLoggedIn={isLoggedIn}
-                        onLoginRequest={() => setLoginOpen(true)}
-                        archivedChats={archivedChats}
-                        onUnarchive={handleUnarchiveChat}
-                        onDelete={handleDeleteArchived}
-                    />
-                );
-            case "settings":
-                return <UserSettings />;
-            case "help":
-                return <UserHelp />;
-            default:
-                return (
-                    <ChatInterface
-                        userName={isLoggedIn ? userName : "Guest"}
-                        isGuest={!isLoggedIn}
-                        onLoginRequest={() => setLoginOpen(true)}
-                    />
-                );
-        }
-    };
+  // ===============================
+  // PREVENT FLICKER
+  // ===============================
+  if (authLoading) {
+    return null;
+  }
 
-    return (
-        <div className="flex h-screen w-full bg-background">
-            <UserSidebar
-                activeView={activeView}
-                onViewChange={setActiveView}
-                chats={filteredChats}
-                activeChatId={activeChatId}
-                onChatSelect={setActiveChatId}
-                onChatDelete={handleDeleteChat}
-                onChatArchive={handleArchiveChat}
-                onNewChat={handleNewChat}
-                isCollapsed={isCollapsed}
-                onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
-                isLoggedIn={isLoggedIn}
-                userName={userName}
-                userEmail={userEmail}
-                onLogout={handleLogout}
-                onLoginRequest={() => setLoginOpen(true)}
-            />
-            <div className="flex flex-1 flex-col overflow-hidden">
-                <UserHeader
-                    currentPage={activeView}
-                    onNewChat={handleNewChat}
-                    isLoggedIn={isLoggedIn}
-                    onLoginRequest={() => setLoginOpen(true)}
-                    activeChatId={activeChatId}
-                    onShare={handleShareChat}
-                    searchValue={headerSearch}
-                    onSearchChange={setHeaderSearch}
-                />
-                <main className="flex-1 overflow-auto bg-background">
-                    {renderContent()}
-                </main>
-            </div>
+  // ===============================
+  // RENDER CONTENT
+  // ===============================
+  const renderContent = () => {
+    if (authLoading) {
+      return null; // tunggu auth selesai
+    }
 
-            <LoginDialog
-                open={loginOpen}
-                onOpenChange={handleLoginDialogChange}
-                onLoginSuccess={handleLoginSuccess}
-            />
-        </div>
-    );
+    switch (activeView) {
+      case "chat":
+        return (
+          <ChatInterface
+            userName={isLoggedIn ? userName : "Guest"}
+            activeChatId={activeChatId}
+            isGuest={!isLoggedIn}
+            onLoginRequest={() => setLoginOpen(true)}
+            recentChats={filteredChats.slice(0, 3)}
+            onChatSelect={(id) => {
+              setActiveChatId(id);
+              setActiveView("chat");
+            }}
+            onChatCreated={async (id) => {
+              setActiveChatId(id);
+              await loadConversations(true);
+            }}
+          />
+        );
+
+      case "archived":
+        return (
+          <UserArchived
+            isLoggedIn={isLoggedIn}
+            onLoginRequest={() => setLoginOpen(true)}
+            archivedChats={archivedChats}
+            onUnarchive={handleUnarchiveChat}
+            onDelete={handleDeleteArchived}
+          />
+        );
+
+      case "settings":
+        return <UserSettings />;
+
+      case "help":
+        return <UserHelp />;
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="flex h-screen w-full bg-background">
+      <UserSidebar
+        activeView={activeView}
+        onViewChange={setActiveView}
+        groupedChats={groupedChats}
+        activeChatId={activeChatId}
+        onChatSelect={setActiveChatId}
+        onChatDelete={handleDeleteChat}
+        onChatArchive={handleArchiveChat}
+        onNewChat={handleNewChat}
+        isCollapsed={isCollapsed}
+        onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+        isLoggedIn={isLoggedIn}
+        userName={userName}
+        userEmail={userEmail}
+        onLogout={handleLogout}
+        onLoginRequest={() => setLoginOpen(true)}
+        loadMoreChats={() => loadConversations(false)}
+        hasMoreChats={hasMore}
+      />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <UserHeader
+          currentPage={activeView}
+          onNewChat={handleNewChat}
+          isLoggedIn={isLoggedIn}
+          onLoginRequest={() => setLoginOpen(true)}
+          activeChatId={activeChatId}
+          searchValue={headerSearch}
+          onSearchChange={setHeaderSearch}
+        />
+
+        <main className="flex-1 overflow-auto bg-background">
+          {renderContent()}
+        </main>
+      </div>
+
+      <LoginDialog
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    </div>
+  );
 }
