@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { UserSidebar } from "@/components/user/UserSidebar";
 import { UserHeader } from "@/components/user/UserHeader";
 import { ChatInterface } from "@/components/user/ChatInterface";
@@ -28,7 +29,10 @@ export default function ChatPage() {
   const [userName, setUserName] = useState("Guest");
   const [userEmail, setUserEmail] = useState("");
 
+  const searchParams = useSearchParams();
+
   const [loginOpen, setLoginOpen] = useState(false);
+  const [loginMode, setLoginMode] = useState<"signin" | "signup">("signin");
   const [activeView, setActiveView] = useState<
     "chat" | "archived" | "library" | "settings" | "help"
   >("chat");
@@ -53,7 +57,7 @@ export default function ChatPage() {
 
         if (data?.id) {
           setIsLoggedIn(true);
-          setUserName(data.email);
+          setUserName(data.name || data.email);
           setUserEmail(data.email);
 
           await loadConversations(true); // ← load sidebar data
@@ -69,6 +73,20 @@ export default function ChatPage() {
 
     checkAuth();
   }, []);
+
+  // ===============================
+  // AUTO-OPEN LOGIN/REGISTER FROM URL
+  // ===============================
+  useEffect(() => {
+    const authParam = searchParams.get("auth");
+    if (authParam === "login") {
+      setLoginMode("signin");
+      setLoginOpen(true);
+    } else if (authParam === "register") {
+      setLoginMode("signup");
+      setLoginOpen(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const reload = () => {
@@ -335,6 +353,7 @@ export default function ChatPage() {
         open={loginOpen}
         onOpenChange={setLoginOpen}
         onLoginSuccess={handleLoginSuccess}
+        initialMode={loginMode}
       />
     </div>
   );

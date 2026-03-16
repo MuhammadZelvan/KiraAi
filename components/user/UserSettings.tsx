@@ -15,7 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getSettings, saveSettings, logout } from "@/lib/api";
+import { getSettings, saveSettings, logout, getMe } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export function UserSettings() {
@@ -34,14 +34,23 @@ export function UserSettings() {
         : fallback
       : fallback;
 
-  const [fullName, setFullName] = useState(() => load("fullName", "Zelvan"));
-  const [callName, setCallName] = useState(() => load("callName", "Zelvan"));
+  const [fullName, setFullName] = useState(() => load("fullName", ""));
+  const [callName, setCallName] = useState(() => load("callName", ""));
   const [occupation, setOccupation] = useState(() => load("occupation", ""));
   const [preferences, setPreferences] = useState(() => load("preferences", ""));
   const [notifyCompletion, setNotifyCompletion] = useState(() =>
     loadBool("notifyCompletion", false),
   );
-  const [colorMode, setColorMode] = useState(() => load("colorMode", "auto"));
+  const [colorMode, setColorMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      const lyraMode = localStorage.getItem("lyra_colorMode");
+      if (lyraMode) return lyraMode;
+      const theme = localStorage.getItem("theme");
+      if (theme === "light") return "light";
+      if (theme === "dark") return "dark";
+    }
+    return "auto";
+  });
   const [chatFont, setChatFont] = useState(() => load("chatFont", "Default"));
   const [searchEnabled, setSearchEnabled] = useState(() =>
     loadBool("searchEnabled", true),
@@ -78,18 +87,17 @@ export function UserSettings() {
 
   useEffect(() => {
     async function loadSettings() {
-      const data = await getSettings();
-      if (!data) return;
-
+      const [data, me] = await Promise.all([getSettings(), getMe()]);
+      
       const newSettings = {
-        fullName: data.full_name ?? "",
-        callName: data.call_name ?? "",
-        occupation: data.occupation ?? "",
-        preferences: data.preferences ?? "",
-        notifyCompletion: data.notify_completion ?? false,
-        colorMode: data.color_mode ?? "auto",
-        chatFont: data.chat_font ?? "Default",
-        searchEnabled: data.search_enabled ?? true,
+        fullName: data?.full_name || me?.name || me?.email || "",
+        callName: data?.call_name || me?.name || me?.email || "",
+        occupation: data?.occupation ?? "",
+        preferences: data?.preferences ?? "",
+        notifyCompletion: data?.notify_completion ?? false,
+        colorMode: data?.color_mode ?? colorMode,
+        chatFont: data?.chat_font ?? "Default",
+        searchEnabled: data?.search_enabled ?? true,
       };
 
       setFullName(newSettings.fullName);
