@@ -99,7 +99,7 @@ function SidebarContent({
 }: UserSidebarProps & { onMobileClose?: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { today, yesterday, week, older } = groupedChats;
+  const { today = [], yesterday = [], week = [], older = [] } = groupedChats ?? {};
 
   const handleViewChange = (view: any) => {
     onViewChange(view);

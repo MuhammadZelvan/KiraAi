@@ -3,7 +3,7 @@ const API_URL = "http://localhost:4000";
 export async function login(email: string, password: string) {
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
-    credentials: "include", // WAJIB untuk cookie
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
@@ -11,7 +11,8 @@ export async function login(email: string, password: string) {
   });
 
   if (!res.ok) {
-    throw new Error("Login failed");
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.message || "Login failed");
   }
 
   return res.json();
@@ -57,6 +58,8 @@ export async function streamChat(
   onChunk: (chunk: string) => void,
   onMeta?: (meta: any) => void,
   onDone?: () => void,
+  modelId?: string,
+  imageBase64?: string,
 ) {
   const res = await fetch(`${API_URL}/chat/stream`, {
     method: "POST",
@@ -64,11 +67,12 @@ export async function streamChat(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ message, conversationId }),
+    body: JSON.stringify({ message, conversationId, modelId, imageBase64 }),
   });
 
   if (!res.ok || !res.body) {
-    throw new Error("Stream failed");
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.message || `Stream failed (${res.status})`);
   }
 
   const reader = res.body.getReader();
@@ -95,18 +99,20 @@ export async function streamChat(
         if (line.startsWith("event: ")) {
           eventType = line.replace("event: ", "").trim();
         }
-
         if (line.startsWith("data: ")) {
           data = line.replace("data: ", "");
         }
       }
 
       if (eventType === "meta") {
-        try {
-          onMeta?.(JSON.parse(data));
-        } catch {}
+        try { onMeta?.(JSON.parse(data)); } catch {}
       } else if (eventType === "message") {
-        onChunk(data);
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.token) onChunk(parsed.token);
+        } catch {
+          onChunk(data);
+        }
       } else if (eventType === "done") {
         onDone?.();
       }
@@ -208,4 +214,36 @@ export async function logout() {
   }
 
   return res.json();
+}
+
+export async function getQuotaUsage() {
+  const res = await fetch(`${API_URL}/chat/quota`, {
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function getChatModels() {
+  const res = await fetch(`${API_URL}/chat/models`, { credentials: "include" });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function deleteMessage(messageId: string) {
+  const res = await fetch(`${API_URL}/chat/messages/${messageId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to delete message");
+  return res.json();
+}
+
+export async function rewindMessage(messageId: string) {
+  const res = await fetch(`${API_URL}/chat/messages/${messageId}/rewind`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to rewind message");
+  return res.json() as Promise<{ status: string; content: string; image_url: string | null }>;
 }

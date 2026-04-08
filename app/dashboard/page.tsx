@@ -13,6 +13,7 @@ import {
   getUsersGrowth,
   getLoginActivity,
 } from "@/lib/adminApi";
+import { useAutoRefresh } from "@/hooks/use-autorefresh";
 
 /* ================================
  TYPES
@@ -137,13 +138,7 @@ export default function DashboardPage() {
   AUTO REFRESH (30s)
   ================================ */
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchDashboard();
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, []);
+  useAutoRefresh(fetchDashboard);
 
   /* ================================
   LOADING

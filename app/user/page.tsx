@@ -8,7 +8,7 @@ import { LoginDialog } from "@/components/user/LoginDialog";
 import { UserSettings } from "@/components/user/UserSettings";
 import { UserHelp } from "@/components/user/UserHelp";
 import { UserArchived } from "@/components/user/UserArchived";
-import { getMe } from "@/lib/api";
+import { getMe, getSettings } from "@/lib/api";
 import { deleteConversation } from "@/lib/api";
 import { archiveConversation, unarchiveConversation } from "@/lib/api";
 import { logout } from "@/lib/api";
@@ -35,7 +35,11 @@ export default function ChatPage() {
 
   const [chats, setChats] = useState<Chat[]>([]);
   const [archivedChats, setArchivedChats] = useState<Chat[]>([]);
-  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("activeChatId");
+  });
+  const [uiReady, setUiReady] = useState(false);
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
@@ -43,8 +47,18 @@ export default function ChatPage() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
 
+  // Helper: load display name from user data (username), fallback to email
+  const loadDisplayName = async (fallbackEmail: string) => {
+    try {
+      const data = await getMe();
+      setUserName(data?.username || data?.name || fallbackEmail);
+    } catch {
+      setUserName(fallbackEmail);
+    }
+  };
+
   // ===============================
-  // AUTH CHECK (STABLE VERSION)
+  // AUTH CHECK
   // ===============================
   useEffect(() => {
     async function checkAuth() {
@@ -53,17 +67,16 @@ export default function ChatPage() {
 
         if (data?.id) {
           setIsLoggedIn(true);
-          setUserName(data.email);
           setUserEmail(data.email);
-
-          await loadConversations(true); // ← load sidebar data
+          await loadDisplayName(data.email);
+          await loadConversations(true);
         } else {
           setIsLoggedIn(false);
         }
       } catch {
         setIsLoggedIn(false);
       } finally {
-        setAuthLoading(false); // ← INI WAJIB
+        setAuthLoading(false);
       }
     }
 
@@ -71,17 +84,48 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    const reload = () => {
-      setOffset(0);
-      setHasMore(true);
-      loadConversations(true);
+    if (activeChatId) {
+      localStorage.setItem("activeChatId", activeChatId);
+    } else {
+      localStorage.removeItem("activeChatId");
+    }
+  }, [activeChatId]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("activeChatId");
+    if (saved) setActiveChatId(saved);
+    setUiReady(true);
+  }, []);
+
+  useEffect(() => {
+    const reload = async () => {
+      try {
+        const data = await getMe();
+        if (data?.id) {
+          setOffset(0);
+          setHasMore(true);
+          await loadDisplayName(data.email);
+          loadConversations(true);
+        } else {
+          setIsLoggedIn(false);
+          setUserName("Guest");
+          setUserEmail("");
+          setChats([]);
+          setActiveChatId(null);
+          setActiveView("chat");
+        }
+      } catch {
+        setIsLoggedIn(false);
+        setUserName("Guest");
+        setUserEmail("");
+        setChats([]);
+        setActiveChatId(null);
+        setActiveView("chat");
+      }
     };
 
     window.addEventListener("conversations-updated", reload);
-
-    return () => {
-      window.removeEventListener("conversations-updated", reload);
-    };
+    return () => window.removeEventListener("conversations-updated", reload);
   }, []);
 
   // ===============================
@@ -89,14 +133,13 @@ export default function ChatPage() {
   // ===============================
   const handleLoginSuccess = async (name: string, email: string) => {
     setIsLoggedIn(true);
-    setUserName(name);
     setUserEmail(email);
+    // name already contains username from LoginDialog finishLogin
+    setUserName(name || email);
     setLoginOpen(false);
-
     setOffset(0);
     setHasMore(true);
-
-    await loadConversations(true); // reset pagination
+    await loadConversations(true);
   };
 
   // ===============================
@@ -105,11 +148,12 @@ export default function ChatPage() {
   const handleLogout = async () => {
     try {
       await logout();
-
       setIsLoggedIn(false);
+      setUserName("Guest");
+      setUserEmail("");
       setChats([]);
       setActiveChatId(null);
-
+      setActiveView("chat");
       window.dispatchEvent(new Event("conversations-updated"));
     } catch (err) {
       console.error("Logout failed");
@@ -153,44 +197,38 @@ export default function ChatPage() {
   };
 
   // ===============================
-  // NEW CHAT (NO FAKE ID)
+  // NEW CHAT
   // ===============================
   const handleNewChat = useCallback(() => {
-    setActiveChatId(null); // backend will create conversation
+    setActiveChatId(null);
+    localStorage.removeItem("activeChatId");
     setActiveView("chat");
   }, []);
 
   // ===============================
-  // DELETE CHAT (frontend only for now)
+  // DELETE CHAT
   // ===============================
   const handleDeleteChat = async (id: string) => {
     try {
       await deleteConversation(id);
-
       setChats((prev) => prev.filter((c) => c.id !== id));
-
-      if (activeChatId === id) {
-        setActiveChatId(null);
-      }
+      if (activeChatId === id) setActiveChatId(null);
     } catch (err) {
       console.error("Delete failed");
     }
   };
 
   // ===============================
-  // ARCHIVE (keep your old behavior)
+  // ARCHIVE
   // ===============================
   const handleArchiveChat = useCallback(
     async (id: string) => {
       try {
         await archiveConversation(id);
-
         const chat = chats.find((c) => c.id === id);
         if (!chat) return;
-
         setChats((prev) => prev.filter((c) => c.id !== id));
         setArchivedChats((prev) => [{ ...chat, archived: true }, ...prev]);
-
         if (activeChatId === id) setActiveChatId(null);
       } catch (err) {
         console.error("Archive failed");
@@ -203,10 +241,8 @@ export default function ChatPage() {
     async (id: string) => {
       try {
         await unarchiveConversation(id);
-
         const chat = archivedChats.find((c) => c.id === id);
         if (!chat) return;
-
         setArchivedChats((prev) => prev.filter((c) => c.id !== id));
         setChats((prev) => [{ ...chat, archived: false }, ...prev]);
       } catch (err) {
@@ -239,17 +275,13 @@ export default function ChatPage() {
   // ===============================
   // PREVENT FLICKER
   // ===============================
-  if (authLoading) {
-    return null;
-  }
+  if (authLoading || !uiReady) return null;
 
   // ===============================
   // RENDER CONTENT
   // ===============================
   const renderContent = () => {
-    if (authLoading) {
-      return null; // tunggu auth selesai
-    }
+    if (authLoading) return null;
 
     switch (activeView) {
       case "chat":
@@ -262,7 +294,7 @@ export default function ChatPage() {
             recentChats={filteredChats.slice(0, 3)}
             onChatSelect={(id) => {
               setActiveChatId(id);
-              setActiveView("chat");
+              localStorage.setItem("activeChatId", id);
             }}
             onChatCreated={async (id) => {
               setActiveChatId(id);
@@ -279,14 +311,31 @@ export default function ChatPage() {
             archivedChats={archivedChats}
             onUnarchive={handleUnarchiveChat}
             onDelete={handleDeleteArchived}
+            onChatSelect={(id) => {
+              setActiveChatId(id);
+              setActiveView("chat");
+            }}
           />
         );
 
       case "settings":
-        return <UserSettings />;
+        return (
+          <UserSettings
+            onSettingsSaved={async () => {
+              if (userEmail) await loadDisplayName(userEmail);
+            }}
+          />
+        );
 
       case "help":
-        return <UserHelp />;
+        return (
+          <UserHelp
+            isLoggedIn={isLoggedIn}
+            userEmail={userEmail}
+            userName={userName}
+            onLoginRequest={() => setLoginOpen(true)}
+          />
+        );
 
       default:
         return null;
@@ -300,7 +349,10 @@ export default function ChatPage() {
         onViewChange={setActiveView}
         groupedChats={groupedChats}
         activeChatId={activeChatId}
-        onChatSelect={setActiveChatId}
+        onChatSelect={(id) => {
+          setActiveChatId(id);
+          setActiveView("chat");
+        }}
         onChatDelete={handleDeleteChat}
         onChatArchive={handleArchiveChat}
         onNewChat={handleNewChat}

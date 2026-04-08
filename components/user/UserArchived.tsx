@@ -32,7 +32,7 @@ interface UserArchivedProps {
   archivedChats?: Chat[];
   onUnarchive?: (id: string) => void;
   onDelete?: (id: string) => void;
-  onChatSelect?: (id: string) => void; // ← tambah ini
+  onChatSelect?: (id: string) => void;
 }
 
 export function UserArchived({
@@ -62,20 +62,17 @@ export function UserArchived({
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
         );
         break;
-
       case "oldest":
         items = [...items].sort(
           (a, b) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
         );
         break;
-
       case "az":
         items = [...items].sort((a, b) =>
           (a.title ?? "").localeCompare(b.title ?? ""),
         );
         break;
-
       case "za":
         items = [...items].sort((a, b) =>
           (b.title ?? "").localeCompare(a.title ?? ""),
@@ -202,7 +199,8 @@ export function UserArchived({
             {filtered.map((chat) => (
               <div
                 key={chat.id}
-                className="group rounded-2xl border border-border bg-muted/30 p-4 hover:bg-muted/50 transition-all duration-200"
+                className="group rounded-2xl border border-border bg-muted/30 p-4 hover:bg-muted/50 transition-all duration-200 cursor-pointer"
+                onClick={() => onChatSelect?.(chat.id)}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
@@ -214,7 +212,10 @@ export function UserArchived({
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-foreground"
                       title="Unarchive"
-                      onClick={() => onUnarchive?.(chat.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUnarchive?.(chat.id);
+                      }}
                     >
                       <ArchiveRestore className="h-4 w-4" />
                     </Button>
@@ -223,7 +224,10 @@ export function UserArchived({
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-destructive"
                       title="Delete"
-                      onClick={() => onDelete?.(chat.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete?.(chat.id);
+                      }}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -248,7 +252,7 @@ export function UserArchived({
               <div
                 key={chat.id}
                 onClick={() => onChatSelect?.(chat.id)}
-                className="group cursor-pointer rounded-2xl border border-border bg-muted/30 p-4 hover:bg-muted/50 transition-all duration-200"
+                className="group cursor-pointer rounded-2xl border border-border bg-muted/30 p-4 hover:bg-muted/50 transition-all duration-200 flex items-center justify-between gap-3"
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shrink-0">
@@ -263,12 +267,15 @@ export function UserArchived({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0 ml-2">
+                <div className="flex items-center gap-1 shrink-0">
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                    onClick={() => onUnarchive?.(chat.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUnarchive?.(chat.id);
+                    }}
                   >
                     <ArchiveRestore className="h-3.5 w-3.5" />
                     Unarchive
@@ -277,7 +284,10 @@ export function UserArchived({
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={() => onDelete?.(chat.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete?.(chat.id);
+                    }}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

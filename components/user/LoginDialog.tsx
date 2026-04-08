@@ -17,6 +17,21 @@ import { login } from "@/lib/api";
 
 const API_URL = "http://localhost:4000";
 
+// ─── Email validation ──────────────────────────────────────────────────────────
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const BLOCKED_DOMAINS = [
+  "example.com", "test.com", "mailinator.com", "tempmail.com",
+  "guerrillamail.com", "throwam.com", "yopmail.com", "sharklasers.com",
+  "maildrop.cc", "trashmail.com", "fakeinbox.com", "dispostable.com",
+];
+
+function validateEmail(email: string): string | null {
+  if (!EMAIL_REGEX.test(email)) return "Format email tidak valid.";
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (domain && BLOCKED_DOMAINS.includes(domain)) return "Gunakan email asli ya.";
+  return null;
+}
+
 interface LoginDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,21 +52,32 @@ export function LoginDialog({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
 
-  const resetError = () => setError("");
+  const resetForm = () => {
+    setError("");
+    setEmail("");
+    setPassword("");
+    setName("");
+    setUsername("");
+  };
+
+  const switchMode = (m: "signin" | "signup") => {
+    resetForm();
+    setMode(m);
+  };
 
   const finishLogin = (user: any) => {
-    onLoginSuccess?.(user.name ?? user.email, user.email);
-
-    // reload sidebar conversations
+    // Prioritize username as display name, fallback to name then email
+    const displayName = user.username || user.name || user.email;
+    onLoginSuccess?.(displayName, user.email);
     window.dispatchEvent(new Event("conversations-updated"));
-
     onOpenChange(false);
   };
 
   // ================= LOGIN =================
   const handleLogin = async () => {
-    resetError();
+    setError("");
 
     if (!email || !password) {
       setError("Email dan password wajib diisi.");
@@ -60,12 +86,14 @@ export function LoginDialog({
 
     try {
       setLoading(true);
-
       const response = await login(email.trim(), password);
-
       finishLogin(response.user);
-    } catch (err) {
-      setError("Email atau password salah.");
+    } catch (err: any) {
+      if (err.message?.toLowerCase().includes("banned")) {
+        setError("Akun kamu telah dibanned. Hubungi support untuk bantuan.");
+      } else {
+        setError("Email atau password salah.");
+      }
     } finally {
       setLoading(false);
     }
@@ -73,9 +101,9 @@ export function LoginDialog({
 
   // ================= REGISTER =================
   const handleRegister = async () => {
-    resetError();
+    setError("");
 
-    if (!name || !email || !password) {
+    if (!name || !username || !email || !password) {
       setError("Semua field wajib diisi.");
       return;
     }
@@ -85,37 +113,49 @@ export function LoginDialog({
       return;
     }
 
+    // ── Validasi email sebelum request ke server ──
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setError(emailError);
+      return;
+    }
+
     try {
       setLoading(true);
 
       const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
+          username: username.trim(),
           email: email.trim(),
           password,
         }),
       });
 
       if (!res.ok) {
-        throw new Error("Register failed");
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || "Register failed");
       }
 
+      // Auto login after register
       const loginRes = await login(email.trim(), password);
-
       finishLogin(loginRes.user);
-    } catch {
-      setError("Gagal mendaftar. Email mungkin sudah digunakan.");
+    } catch (err: any) {
+      if (err.message?.toLowerCase().includes("already")) {
+        setError("Email sudah terdaftar.");
+      } else if (err.message?.toLowerCase().includes("email")) {
+        setError(err.message);
+      } else {
+        setError("Gagal mendaftar. Silakan coba lagi.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // ================= SOCIAL LOGIN (UI ONLY) =================
   const handleSocialLogin = (provider: string) => {
     console.log("Login with", provider);
   };
@@ -146,34 +186,20 @@ export function LoginDialog({
         {/* Error */}
         {error && (
           <div className="mb-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
-            <AlertCircle className="h-4 w-4" />
+            <AlertCircle className="h-4 w-4 shrink-0" />
             {error}
           </div>
         )}
 
         {/* Social Login */}
         <div className="space-y-2 mb-4">
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleSocialLogin("google")}
-          >
+          <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("google")}>
             Continue with Google
           </Button>
-
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleSocialLogin("github")}
-          >
+          <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("github")}>
             Continue with GitHub
           </Button>
-
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => handleSocialLogin("apple")}
-          >
+          <Button variant="outline" className="w-full" onClick={() => handleSocialLogin("apple")}>
             Continue with Apple
           </Button>
         </div>
@@ -185,16 +211,27 @@ export function LoginDialog({
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        {/* Name */}
+        {/* Signup-only fields */}
         {mode === "signup" && (
-          <div className="mb-3">
-            <Label>Name</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              className="mt-1"
-            />
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <Label>Full Name</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Your full name"
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Username</Label>
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. johndoe"
+                className="mt-1"
+              />
+            </div>
           </div>
         )}
 
@@ -208,6 +245,10 @@ export function LoginDialog({
             placeholder="Enter your email"
             className="mt-1"
           />
+          {/* Inline hint — hanya muncul saat signup & email sudah diketik */}
+          {mode === "signup" && email && validateEmail(email) && (
+            <p className="text-xs text-destructive mt-1">{validateEmail(email)}</p>
+          )}
         </div>
 
         {/* Password */}
@@ -225,17 +266,12 @@ export function LoginDialog({
                 (mode === "signin" ? handleLogin() : handleRegister())
               }
             />
-
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2"
             >
-              {showPassword ? (
-                <Eye className="h-4 w-4" />
-              ) : (
-                <EyeOff className="h-4 w-4" />
-              )}
+              {showPassword ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </button>
           </div>
         </div>
@@ -246,22 +282,14 @@ export function LoginDialog({
           onClick={mode === "signin" ? handleLogin : handleRegister}
           disabled={loading}
         >
-          {loading
-            ? "Loading..."
-            : mode === "signin"
-            ? "Login"
-            : "Create Account"}
+          {loading ? "Loading..." : mode === "signin" ? "Login" : "Create Account"}
         </Button>
 
         {/* Switch mode */}
         <p className="text-sm text-center text-muted-foreground mt-4">
-          {mode === "signin"
-            ? "Don't have an account?"
-            : "Already have an account?"}{" "}
+          {mode === "signin" ? "Don't have an account?" : "Already have an account?"}{" "}
           <button
-            onClick={() =>
-              setMode(mode === "signin" ? "signup" : "signin")
-            }
+            onClick={() => switchMode(mode === "signin" ? "signup" : "signin")}
             className="underline font-medium"
           >
             {mode === "signin" ? "Sign up" : "Sign in"}

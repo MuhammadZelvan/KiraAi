@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -14,6 +13,7 @@ import {
   Settings,
   HelpCircle,
   Sparkles,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -39,6 +39,7 @@ const generalItems = [
 const aiManagementItems = [
   { title: "API Keys", url: "/api-keys", icon: Key },
   { title: "Tokenizer", url: "/tokenizer", icon: Cpu },
+  { title: "System Prompt", url: "/system-prompt", icon: FileText },
   { title: "System Control", url: "/system-control", icon: Sparkles },
 ];
 

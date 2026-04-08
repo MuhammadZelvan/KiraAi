@@ -6,826 +6,881 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import {
-    Cpu,
-    Zap,
-    DollarSign,
-    BarChart3,
-    Hash,
-    ArrowRight,
-    Copy,
-    Trash2,
-    RefreshCw,
-    TrendingUp,
-    TrendingDown,
-    Info,
-    Sparkles,
-    Bot,
-    Brain,
-    Activity,
-    ChevronDown,
-    Calculator,
-    FileText,
-    Clock,
-    Download,
+  Cpu,
+  Zap,
+  DollarSign,
+  BarChart3,
+  Hash,
+  Copy,
+  Trash2,
+  RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  Sparkles,
+  Activity,
+  Calculator,
+  FileText,
+  Clock,
+  Download,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  getTokenizerOverview,
+  getTokenUsageHistory,
+  getRecentTokenizations,
+} from "@/lib/adminApi";
+import { useAutoRefresh } from "@/hooks/use-autorefresh";
 
 // ===== TYPES =====
 interface TokenResult {
-    model: string;
-    tokens: number;
-    characters: number;
-    words: number;
-    sentences: number;
-    costPer1k: number;
-    estimatedCost: number;
+  tokens: number;
+  characters: number;
+  words: number;
+  sentences: number;
+  estimatedCostInput: number;
+  estimatedCostOutput: number;
+  contextUsagePct: number;
 }
 
 interface UsageRecord {
-    date: string;
-    tokens: number;
-    requests: number;
-    cost: number;
+  date: string;
+  tokens: number;
+  requests: number;
+  cost: number;
 }
 
-interface ModelInfo {
-    id: string;
-    name: string;
-    provider: string;
-    icon: React.ElementType;
-    tokensPerWord: number; // average tokens per word ratio
-    costPer1kInput: number;
-    costPer1kOutput: number;
-    maxContext: number;
-    color: string;
+interface RecentItem {
+  id: string;
+  text: string;
+  tokens: number;
+  model: string;
+  created_at: string;
 }
 
-// ===== DATA =====
-const models: ModelInfo[] = [
-    {
-        id: "gpt4-turbo",
-        name: "GPT-4 Turbo",
-        provider: "OpenAI",
-        icon: Bot,
-        tokensPerWord: 1.35,
-        costPer1kInput: 0.01,
-        costPer1kOutput: 0.03,
-        maxContext: 128000,
-        color: "text-green-500",
-    },
-    {
-        id: "gpt35-turbo",
-        name: "GPT-3.5 Turbo",
-        provider: "OpenAI",
-        icon: Zap,
-        tokensPerWord: 1.33,
-        costPer1kInput: 0.0005,
-        costPer1kOutput: 0.0015,
-        maxContext: 16384,
-        color: "text-blue-500",
-    },
-    {
-        id: "claude3-opus",
-        name: "Claude 3 Opus",
-        provider: "Anthropic",
-        icon: Brain,
-        tokensPerWord: 1.38,
-        costPer1kInput: 0.015,
-        costPer1kOutput: 0.075,
-        maxContext: 200000,
-        color: "text-orange-500",
-    },
-    {
-        id: "gemini-pro",
-        name: "Gemini Pro",
-        provider: "Google",
-        icon: Sparkles,
-        tokensPerWord: 1.30,
-        costPer1kInput: 0.00025,
-        costPer1kOutput: 0.0005,
-        maxContext: 32768,
-        color: "text-purple-500",
-    },
-];
-
-const usageHistory: UsageRecord[] = [
-    { date: "Feb 18", tokens: 125400, requests: 342, cost: 4.52 },
-    { date: "Feb 19", tokens: 98200, requests: 287, cost: 3.41 },
-    { date: "Feb 20", tokens: 156800, requests: 412, cost: 5.78 },
-    { date: "Feb 21", tokens: 134500, requests: 358, cost: 4.89 },
-    { date: "Feb 22", tokens: 178900, requests: 489, cost: 6.42 },
-    { date: "Feb 23", tokens: 145200, requests: 398, cost: 5.21 },
-    { date: "Feb 24", tokens: 89600, requests: 234, cost: 3.12 },
-];
-
-const recentTokenizations = [
-    { id: "1", text: "What is the weather today?", tokens: 8, model: "GPT-4 Turbo", time: "2 min ago" },
-    { id: "2", text: "Explain quantum computing in simple terms and provide examples of real-world applications", tokens: 18, model: "GPT-3.5 Turbo", time: "15 min ago" },
-    { id: "3", text: "Write a professional email response to a customer complaint about late delivery", tokens: 16, model: "Claude 3 Opus", time: "32 min ago" },
-    { id: "4", text: "Translate the following paragraph from English to Indonesian and maintain the formal tone", tokens: 17, model: "Gemini Pro", time: "1 hour ago" },
-    { id: "5", text: "Summarize the key points of this 500-word article about artificial intelligence in healthcare", tokens: 19, model: "GPT-4 Turbo", time: "2 hours ago" },
-];
-
-// ===== HELPER FUNCTIONS =====
-function formatNum(num: number): string {
-    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+interface Overview {
+  tokens_today: number;
+  tokens_today_growth: number;
+  weekly_tokens: number;
+  weekly_requests: number;
+  weekly_cost: number;
+  weekly_requests_growth: number;
+  avg_tokens_per_request: number;
 }
 
-function estimateTokens(text: string, ratio: number): number {
-    if (!text.trim()) return 0;
-    const words = text.trim().split(/\s+/).length;
-    return Math.ceil(words * ratio);
+// ===== MODEL CONFIG (Grok 4.1 only) =====
+const MODEL = {
+  id: "grok-4.1",
+  name: "Grok 4.1",
+  provider: "xAI",
+  tokensPerWord: 1.35,
+  costPer1kInput: 0.000003, // $3/M tokens — update sesuai pricing xAI
+  costPer1kOutput: 0.000015, // $15/M tokens
+  maxContext: 131072,
+};
+
+// ===== HELPERS =====
+function formatNum(n: number) {
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-function countWords(text: string): number {
-    if (!text.trim()) return 0;
-    return text.trim().split(/\s+/).length;
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+  return `${Math.floor(hrs / 24)} day${Math.floor(hrs / 24) > 1 ? "s" : ""} ago`;
 }
 
-function countSentences(text: string): number {
-    if (!text.trim()) return 0;
-    return text.split(/[.!?]+/).filter(s => s.trim().length > 0).length;
+function countWords(text: string) {
+  if (!text.trim()) return 0;
+  return text.trim().split(/\s+/).length;
+}
+
+function countSentences(text: string) {
+  if (!text.trim()) return 0;
+  return text.split(/[.!?]+/).filter((s) => s.trim().length > 0).length;
+}
+
+function estimateTokens(text: string) {
+  return Math.ceil(countWords(text) * MODEL.tokensPerWord);
 }
 
 // ===== COMPONENT =====
 export default function TokenizerPage() {
-    const { toast } = useToast();
-    const [inputText, setInputText] = useState("");
-    const [selectedModel, setSelectedModel] = useState<ModelInfo>(models[0]);
-    const [tokenResults, setTokenResults] = useState<TokenResult[]>([]);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [calcTokens, setCalcTokens] = useState("1000");
-    const [calcModel, setCalcModel] = useState<ModelInfo>(models[0]);
-    const [activeTab, setActiveTab] = useState<"tokenizer" | "history" | "calculator">("tokenizer");
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<
+    "tokenizer" | "history" | "calculator"
+  >("tokenizer");
 
-    // Live tokenization on text change
-    const analyzeTokens = useCallback(() => {
-        if (!inputText.trim()) {
-            setTokenResults([]);
-            return;
-        }
+  // Live tokenizer
+  const [inputText, setInputText] = useState("");
+  const [tokenResult, setTokenResult] = useState<TokenResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-        setIsAnalyzing(true);
+  // Calculator
+  const [calcTokens, setCalcTokens] = useState("1000");
 
-        // Simulate slight delay for realism
-        setTimeout(() => {
-            const results: TokenResult[] = models.map((model) => {
-                const tokens = estimateTokens(inputText, model.tokensPerWord);
-                return {
-                    model: model.name,
-                    tokens,
-                    characters: inputText.length,
-                    words: countWords(inputText),
-                    sentences: countSentences(inputText),
-                    costPer1k: model.costPer1kInput,
-                    estimatedCost: (tokens / 1000) * model.costPer1kInput,
-                };
-            });
-            setTokenResults(results);
-            setIsAnalyzing(false);
-        }, 300);
-    }, [inputText]);
+  // Remote data
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [history, setHistory] = useState<UsageRecord[]>([]);
+  const [recent, setRecent] = useState<RecentItem[]>([]);
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loadingRecent, setLoadingRecent] = useState(true);
 
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            analyzeTokens();
-        }, 500); // debounce
+  useEffect(() => {
+    getTokenizerOverview()
+      .then(setOverview)
+      .catch(console.error)
+      .finally(() => setLoadingOverview(false));
 
-        return () => clearTimeout(timer);
-    }, [inputText, analyzeTokens]);
+    getTokenUsageHistory()
+      .then(setHistory)
+      .catch(console.error)
+      .finally(() => setLoadingHistory(false));
 
-    const handleCopy = () => {
-        const result = tokenResults.find((r) => r.model === selectedModel.name);
-        if (result) {
-            const text = `Model: ${result.model}\nTokens: ${result.tokens}\nWords: ${result.words}\nCharacters: ${result.characters}\nEstimated Cost: $${result.estimatedCost.toFixed(6)}`;
-            navigator.clipboard.writeText(text);
-            toast({ title: "Copied!", description: "Token analysis copied to clipboard." });
-        }
-    };
+    getRecentTokenizations(5)
+      .then(setRecent)
+      .catch(console.error)
+      .finally(() => setLoadingRecent(false));
+  }, []);
 
-    const handleClear = () => {
-        setInputText("");
-        setTokenResults([]);
-    };
+  // Live tokenization debounced
+  useEffect(() => {
+    if (!inputText.trim()) {
+      setTokenResult(null);
+      return;
+    }
+    setIsAnalyzing(true);
+    const t = setTimeout(() => {
+      const tokens = estimateTokens(inputText);
+      setTokenResult({
+        tokens,
+        characters: inputText.length,
+        words: countWords(inputText),
+        sentences: countSentences(inputText),
+        estimatedCostInput: (tokens / 1000) * MODEL.costPer1kInput,
+        estimatedCostOutput: (tokens / 1000) * MODEL.costPer1kOutput,
+        contextUsagePct: (tokens / MODEL.maxContext) * 100,
+      });
+      setIsAnalyzing(false);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [inputText]);
 
-    const handleExportHistory = () => {
-        const csv = "Date,Tokens,Requests,Cost\n" + usageHistory.map(r => `${r.date},${r.tokens},${r.requests},$${r.cost}`).join("\n");
-        const blob = new Blob([csv], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `token-usage-${Date.now()}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
-        toast({ title: "Exported!", description: "Token usage history exported to CSV." });
-    };
+  useAutoRefresh(() => {
+    getTokenizerOverview().then(setOverview).catch(console.error);
+    getTokenUsageHistory().then(setHistory).catch(console.error);
+    getRecentTokenizations(5).then(setRecent).catch(console.error);
+  });
 
-    // Stats calculation
-    const totalTokensToday = usageHistory[usageHistory.length - 1]?.tokens || 0;
-    const totalTokensYesterday = usageHistory[usageHistory.length - 2]?.tokens || 0;
-    const tokenChange = totalTokensYesterday > 0
-        ? ((totalTokensToday - totalTokensYesterday) / totalTokensYesterday * 100)
-        : 0;
+  const handleCopy = () => {
+    if (!tokenResult) return;
+    const text = `Model: ${MODEL.name}\nTokens: ${tokenResult.tokens}\nWords: ${tokenResult.words}\nCharacters: ${tokenResult.characters}\nEstimated Cost (Input): $${tokenResult.estimatedCostInput.toFixed(6)}`;
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copied!",
+      description: "Token analysis copied to clipboard.",
+    });
+  };
 
-    const totalCostThisWeek = usageHistory.reduce((sum, r) => sum + r.cost, 0);
-    const totalRequestsThisWeek = usageHistory.reduce((sum, r) => sum + r.requests, 0);
-    const avgTokensPerRequest = Math.round(usageHistory.reduce((sum, r) => sum + r.tokens, 0) / totalRequestsThisWeek);
+  const handleExportHistory = () => {
+    const csv =
+      "Date,Tokens,Requests,Cost\n" +
+      history
+        .map((r) => `${r.date},${r.tokens},${r.requests},${r.cost}`)
+        .join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `token-usage-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported!" });
+  };
 
-    const maxTokens = Math.max(...usageHistory.map((r) => r.tokens));
+  const maxTokens = Math.max(...history.map((r) => r.tokens), 1);
+  const totalRequestsWeek = history.reduce((s, r) => s + r.requests, 0);
+  const totalCostWeek = history.reduce((s, r) => s + r.cost, 0);
+  const avgTokensPerReq =
+    totalRequestsWeek > 0
+      ? Math.round(
+          history.reduce((s, r) => s + r.tokens, 0) / totalRequestsWeek,
+        )
+      : 0;
 
-    const tabs = [
-        { key: "tokenizer" as const, label: "Live Tokenizer", icon: Cpu },
-        { key: "history" as const, label: "Usage History", icon: BarChart3 },
-        { key: "calculator" as const, label: "Cost Calculator", icon: Calculator },
-    ];
+  const calcCostInput =
+    ((parseInt(calcTokens) || 0) / 1000) * MODEL.costPer1kInput;
+  const calcCostOutput =
+    ((parseInt(calcTokens) || 0) / 1000) * MODEL.costPer1kOutput;
 
-    const calcCostInput = (parseInt(calcTokens) || 0) / 1000 * calcModel.costPer1kInput;
-    const calcCostOutput = (parseInt(calcTokens) || 0) / 1000 * calcModel.costPer1kOutput;
+  const tabs = [
+    { key: "tokenizer" as const, label: "Live Tokenizer", icon: Cpu },
+    { key: "history" as const, label: "Usage History", icon: BarChart3 },
+    { key: "calculator" as const, label: "Cost Calculator", icon: Calculator },
+  ];
 
-    return (
-        <DashboardLayout>
-            <div className="mx-auto max-w-7xl space-y-6">
-                {/* Header */}
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold text-foreground">Tokenizer</h1>
-                        <p className="text-muted-foreground">
-                            Analyze, count, and estimate costs for AI model tokens.
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <Button variant="outline" className="gap-2" onClick={handleExportHistory}>
-                            <Download className="h-4 w-4" />
-                            Export Usage
-                        </Button>
-                    </div>
+  return (
+    <DashboardLayout>
+      <div className="mx-auto max-w-7xl space-y-6">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Tokenizer</h1>
+            <p className="text-muted-foreground">
+              Analyze, count, and estimate costs for Grok 4.1 tokens.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleExportHistory}
+          >
+            <Download className="h-4 w-4" />
+            Export Usage
+          </Button>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              label: "Tokens Today",
+              value: loadingOverview
+                ? "—"
+                : formatNum(overview?.tokens_today ?? 0),
+              growth: overview?.tokens_today_growth ?? 0,
+              icon: Hash,
+              color: "bg-primary/10",
+              iconColor: "text-primary",
+              suffix: "vs yesterday",
+            },
+            {
+              label: "Weekly Cost",
+              value: loadingOverview
+                ? "—"
+                : `$${(overview ? overview.weekly_cost : 0).toFixed(2)}`,
+              growth: null,
+              icon: DollarSign,
+              color: "bg-success/10",
+              iconColor: "text-success",
+              suffix: "7 day total",
+            },
+            {
+              label: "Weekly Requests",
+              value: loadingOverview
+                ? "—"
+                : formatNum(overview?.weekly_requests ?? 0),
+              growth: overview?.weekly_requests_growth ?? 0,
+              icon: Activity,
+              color: "bg-warning/10",
+              iconColor: "text-warning",
+              suffix: "vs last week",
+            },
+            {
+              label: "Avg Tokens/Req",
+              value: loadingOverview
+                ? "—"
+                : formatNum(overview?.avg_tokens_per_request ?? 0),
+              growth: null,
+              icon: Cpu,
+              color: "bg-destructive/10",
+              iconColor: "text-destructive",
+              suffix: "this week",
+            },
+          ].map((card) => (
+            <div
+              key={card.label}
+              className="rounded-lg border border-border bg-card p-5"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className={cn(
+                    "flex h-12 w-12 items-center justify-center rounded-lg",
+                    card.color,
+                  )}
+                >
+                  <card.icon className={cn("h-6 w-6", card.iconColor)} />
                 </div>
-
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    {/* Token Today */}
-                    <div className="rounded-lg border border-border bg-card p-5">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                                <Hash className="h-6 w-6 text-primary" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Tokens Today</p>
-                                <p className="text-2xl font-bold text-foreground">{formatNum(totalTokensToday)}</p>
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-sm">
-                            <span className={cn(
-                                "inline-flex items-center gap-1 font-medium",
-                                tokenChange >= 0 ? "text-destructive" : "text-success"
-                            )}>
-                                {tokenChange >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                                {tokenChange >= 0 ? "↑" : "↓"} {Math.abs(tokenChange).toFixed(1)}%
-                            </span>
-                            <span className="text-muted-foreground">vs yesterday</span>
-                        </div>
-                    </div>
-
-                    {/* Weekly Cost */}
-                    <div className="rounded-lg border border-border bg-card p-5">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-success/10">
-                                <DollarSign className="h-6 w-6 text-success" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Weekly Cost</p>
-                                <p className="text-2xl font-bold text-foreground">${totalCostThisWeek.toFixed(2)}</p>
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-sm">
-                            <span className="font-medium text-primary">7 day total</span>
-                            <span className="text-muted-foreground">From This Week</span>
-                        </div>
-                    </div>
-
-                    {/* Total Requests */}
-                    <div className="rounded-lg border border-border bg-card p-5">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning/10">
-                                <Activity className="h-6 w-6 text-warning" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Weekly Requests</p>
-                                <p className="text-2xl font-bold text-foreground">{formatNum(totalRequestsThisWeek)}</p>
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-sm">
-                            <span className="inline-flex items-center gap-1 font-medium text-success">
-                                <TrendingUp className="h-3 w-3" /> ↑ 12.4%
-                            </span>
-                            <span className="text-muted-foreground">From Last Week</span>
-                        </div>
-                    </div>
-
-                    {/* Avg Tokens/Request */}
-                    <div className="rounded-lg border border-border bg-card p-5">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-destructive/10">
-                                <Cpu className="h-6 w-6 text-destructive" />
-                            </div>
-                            <div>
-                                <p className="text-sm text-muted-foreground">Avg Tokens/Req</p>
-                                <p className="text-2xl font-bold text-foreground">{avgTokensPerRequest}</p>
-                            </div>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-sm">
-                            <span className="inline-flex items-center gap-1 font-medium text-success">
-                                <TrendingDown className="h-3 w-3" /> ↓ 5.2%
-                            </span>
-                            <span className="text-muted-foreground">Efficiency improving</span>
-                        </div>
-                    </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">{card.label}</p>
+                  <p className="text-2xl font-bold text-foreground">
+                    {card.value}
+                  </p>
                 </div>
-
-                {/* Tabs */}
-                <div className="flex items-center border-b border-border">
-                    <div className="flex gap-6">
-                        {tabs.map((tab) => (
-                            <button
-                                key={tab.key}
-                                onClick={() => setActiveTab(tab.key)}
-                                className={cn(
-                                    "flex items-center gap-2 pb-3 text-sm font-medium transition-colors",
-                                    activeTab === tab.key
-                                        ? "border-b-2 border-primary text-foreground"
-                                        : "text-muted-foreground hover:text-foreground"
-                                )}
-                            >
-                                <tab.icon className="h-4 w-4" />
-                                {tab.label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* ===== LIVE TOKENIZER TAB ===== */}
-                {activeTab === "tokenizer" && (
-                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-                        {/* Left: Input Area */}
-                        <div className="lg:col-span-3 space-y-4">
-                            <div className="rounded-lg border border-border bg-card p-5">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-2">
-                                        <FileText className="h-5 w-5 text-primary" />
-                                        <h3 className="text-sm font-semibold text-foreground">Input Text</h3>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {/* Model Selector */}
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button variant="outline" size="sm" className="gap-2 text-xs">
-                                                    <selectedModel.icon className={cn("h-3.5 w-3.5", selectedModel.color)} />
-                                                    {selectedModel.name}
-                                                    <ChevronDown className="h-3 w-3" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
-                                                {models.map((model) => (
-                                                    <DropdownMenuItem
-                                                        key={model.id}
-                                                        onClick={() => setSelectedModel(model)}
-                                                        className={cn(selectedModel.id === model.id && "bg-accent")}
-                                                    >
-                                                        <model.icon className={cn("mr-2 h-4 w-4", model.color)} />
-                                                        <div>
-                                                            <p className="text-sm">{model.name}</p>
-                                                            <p className="text-[10px] text-muted-foreground">{model.provider}</p>
-                                                        </div>
-                                                    </DropdownMenuItem>
-                                                ))}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-
-                                        <Button variant="ghost" size="sm" onClick={handleCopy} disabled={tokenResults.length === 0}>
-                                            <Copy className="h-3.5 w-3.5" />
-                                        </Button>
-                                        <Button variant="ghost" size="sm" onClick={handleClear} disabled={!inputText}>
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                <Textarea
-                                    placeholder="Paste or type your text here to analyze tokens..."
-                                    value={inputText}
-                                    onChange={(e) => setInputText(e.target.value)}
-                                    className="min-h-[200px] resize-none border-border bg-background text-sm focus-visible:ring-primary/20"
-                                />
-
-                                {/* Live Stats Bar */}
-                                <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/50 px-4 py-2.5">
-                                    <div className="flex items-center gap-6 text-xs">
-                                        <span className="text-muted-foreground">
-                                            Characters: <span className="font-semibold text-foreground">{inputText.length}</span>
-                                        </span>
-                                        <span className="text-muted-foreground">
-                                            Words: <span className="font-semibold text-foreground">{countWords(inputText)}</span>
-                                        </span>
-                                        <span className="text-muted-foreground">
-                                            Sentences: <span className="font-semibold text-foreground">{countSentences(inputText)}</span>
-                                        </span>
-                                    </div>
-                                    {isAnalyzing && (
-                                        <div className="flex items-center gap-2 text-xs text-primary">
-                                            <RefreshCw className="h-3 w-3 animate-spin" />
-                                            Analyzing...
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Model Comparison Table */}
-                            {tokenResults.length > 0 && (
-                                <div className="rounded-lg border border-border bg-card p-5">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <BarChart3 className="h-5 w-5 text-primary" />
-                                        <h3 className="text-sm font-semibold text-foreground">Model Comparison</h3>
-                                    </div>
-
-                                    <div className="space-y-3">
-                                        {tokenResults.map((result, index) => {
-                                            const model = models[index];
-                                            const percentage = maxTokens > 0 ? (result.tokens / Math.max(...tokenResults.map(r => r.tokens))) * 100 : 0;
-                                            return (
-                                                <div key={result.model} className="space-y-1.5">
-                                                    <div className="flex items-center justify-between text-sm">
-                                                        <div className="flex items-center gap-2">
-                                                            <model.icon className={cn("h-4 w-4", model.color)} />
-                                                            <span className="font-medium text-foreground">{result.model}</span>
-                                                            <span className="text-[10px] text-muted-foreground">({model.provider})</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-3">
-                                                            <span className="font-semibold text-foreground">{result.tokens} tokens</span>
-                                                            <span className="text-xs text-muted-foreground">${result.estimatedCost.toFixed(6)}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                                                        <div
-                                                            className={cn(
-                                                                "h-full rounded-full transition-all duration-500 ease-out",
-                                                                model.id === "gpt4-turbo" ? "bg-green-500" :
-                                                                    model.id === "gpt35-turbo" ? "bg-blue-500" :
-                                                                        model.id === "claude3-opus" ? "bg-orange-500" :
-                                                                            "bg-purple-500"
-                                                            )}
-                                                            style={{ width: `${percentage}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Right: Token Results */}
-                        <div className="lg:col-span-2 space-y-4">
-                            {/* Selected Model Result */}
-                            <div className="rounded-lg border border-border bg-card p-5">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <selectedModel.icon className={cn("h-5 w-5", selectedModel.color)} />
-                                    <h3 className="text-sm font-semibold text-foreground">Token Analysis — {selectedModel.name}</h3>
-                                </div>
-
-                                {tokenResults.length > 0 ? (
-                                    (() => {
-                                        const result = tokenResults.find(r => r.model === selectedModel.name);
-                                        if (!result) return null;
-                                        const contextUsage = (result.tokens / selectedModel.maxContext) * 100;
-                                        return (
-                                            <div className="space-y-4">
-                                                {/* Big Token Count */}
-                                                <div className="text-center py-4 rounded-lg bg-primary/5 border border-primary/10">
-                                                    <p className="text-4xl font-bold text-primary">{result.tokens}</p>
-                                                    <p className="text-xs text-muted-foreground mt-1">Estimated Tokens</p>
-                                                </div>
-
-                                                {/* Details */}
-                                                <div className="space-y-2.5">
-                                                    <div className="flex items-center justify-between py-2 border-b border-border">
-                                                        <span className="text-sm text-muted-foreground">Characters</span>
-                                                        <span className="text-sm font-medium text-foreground">{formatNum(result.characters)}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between py-2 border-b border-border">
-                                                        <span className="text-sm text-muted-foreground">Words</span>
-                                                        <span className="text-sm font-medium text-foreground">{formatNum(result.words)}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between py-2 border-b border-border">
-                                                        <span className="text-sm text-muted-foreground">Sentences</span>
-                                                        <span className="text-sm font-medium text-foreground">{result.sentences}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between py-2 border-b border-border">
-                                                        <span className="text-sm text-muted-foreground">Tokens/Word Ratio</span>
-                                                        <span className="text-sm font-medium text-foreground">
-                                                            {result.words > 0 ? (result.tokens / result.words).toFixed(2) : "—"}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between py-2 border-b border-border">
-                                                        <span className="text-sm text-muted-foreground">Cost (Input)</span>
-                                                        <span className="text-sm font-semibold text-success">${result.estimatedCost.toFixed(6)}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between py-2">
-                                                        <span className="text-sm text-muted-foreground">Max Context</span>
-                                                        <span className="text-sm font-medium text-foreground">{formatNum(selectedModel.maxContext)}</span>
-                                                    </div>
-                                                </div>
-
-                                                {/* Context Usage */}
-                                                <div>
-                                                    <div className="flex items-center justify-between mb-1.5">
-                                                        <span className="text-xs text-muted-foreground">Context Window Usage</span>
-                                                        <span className="text-xs font-medium text-foreground">{contextUsage.toFixed(4)}%</span>
-                                                    </div>
-                                                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                                                        <div
-                                                            className="h-full rounded-full bg-primary transition-all duration-500"
-                                                            style={{ width: `${Math.min(contextUsage, 100)}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })()
-                                ) : (
-                                    <div className="flex flex-col items-center justify-center py-12 text-center">
-                                        <Cpu className="h-12 w-12 text-muted-foreground/30 mb-3" />
-                                        <p className="text-sm font-medium text-muted-foreground">No Text Analyzed</p>
-                                        <p className="text-xs text-muted-foreground mt-1">Type or paste text in the input area to start analyzing tokens.</p>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Recent Tokenizations */}
-                            <div className="rounded-lg border border-border bg-card p-5">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <Clock className="h-5 w-5 text-primary" />
-                                    <h3 className="text-sm font-semibold text-foreground">Recent Tokenizations</h3>
-                                </div>
-                                <div className="space-y-3">
-                                    {recentTokenizations.map((item) => (
-                                        <div
-                                            key={item.id}
-                                            className="flex items-start gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-muted/30 cursor-pointer"
-                                            onClick={() => setInputText(item.text)}
-                                        >
-                                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                                                <Hash className="h-4 w-4 text-primary" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs text-foreground truncate">{item.text}</p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-[10px] font-semibold text-primary">{item.tokens} tokens</span>
-                                                    <span className="text-[10px] text-muted-foreground">• {item.model}</span>
-                                                    <span className="text-[10px] text-muted-foreground">• {item.time}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+              </div>
+              <div className="mt-3 flex items-center justify-between text-sm">
+                {card.growth !== null ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 font-medium",
+                      card.growth >= 0 ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {card.growth >= 0 ? (
+                      <TrendingUp className="h-3 w-3" />
+                    ) : (
+                      <TrendingDown className="h-3 w-3" />
+                    )}
+                    {card.growth >= 0 ? "↑" : "↓"}{" "}
+                    {Math.abs(card.growth).toFixed(1)}%
+                  </span>
+                ) : (
+                  <span className="font-medium text-primary">
+                    {card.suffix}
+                  </span>
                 )}
-
-                {/* ===== USAGE HISTORY TAB ===== */}
-                {activeTab === "history" && (
-                    <div className="space-y-6">
-                        {/* Chart */}
-                        <div className="rounded-lg border border-border bg-card p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <div className="flex items-center gap-2">
-                                    <BarChart3 className="h-5 w-5 text-primary" />
-                                    <h3 className="text-sm font-semibold text-foreground">Token Usage — Last 7 Days</h3>
-                                </div>
-                                <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={handleExportHistory}>
-                                    <Download className="h-3.5 w-3.5" />
-                                    Export CSV
-                                </Button>
-                            </div>
-
-                            {/* Simple Bar Chart */}
-                            <div className="flex items-end gap-3 h-48">
-                                {usageHistory.map((record, index) => {
-                                    const height = (record.tokens / maxTokens) * 100;
-                                    return (
-                                        <div key={index} className="flex-1 flex flex-col items-center gap-2 group">
-                                            <div className="relative w-full flex justify-center">
-                                                {/* Tooltip */}
-                                                <div className="absolute -top-16 left-1/2 -translate-x-1/2 hidden group-hover:block z-10">
-                                                    <div className="rounded-lg bg-foreground px-3 py-2 text-[10px] text-background shadow-lg whitespace-nowrap">
-                                                        <p className="font-semibold">{formatNum(record.tokens)} tokens</p>
-                                                        <p>{record.requests} requests • ${record.cost.toFixed(2)}</p>
-                                                    </div>
-                                                </div>
-                                                <div
-                                                    className="w-full max-w-12 rounded-t-lg bg-primary/80 hover:bg-primary transition-all duration-300 cursor-pointer"
-                                                    style={{ height: `${height}%`, minHeight: "8px" }}
-                                                />
-                                            </div>
-                                            <span className="text-[10px] text-muted-foreground font-medium">{record.date}</span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        {/* Table */}
-                        <div className="rounded-lg border border-border bg-card overflow-hidden">
-                            <div className="p-5 border-b border-border">
-                                <div className="flex items-center gap-2">
-                                    <FileText className="h-5 w-5 text-primary" />
-                                    <h3 className="text-sm font-semibold text-foreground">Detailed Usage</h3>
-                                </div>
-                            </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="border-b border-border bg-muted/30">
-                                            <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground">Date</th>
-                                            <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground">Tokens Used</th>
-                                            <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground">Requests</th>
-                                            <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground">Avg Tokens/Req</th>
-                                            <th className="px-5 py-3 text-right text-xs font-semibold text-muted-foreground">Cost</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {usageHistory.map((record, index) => (
-                                            <tr key={index} className="border-b border-border last:border-0 transition-colors hover:bg-muted/20">
-                                                <td className="px-5 py-3.5 font-medium text-foreground">{record.date}</td>
-                                                <td className="px-5 py-3.5 text-foreground">{formatNum(record.tokens)}</td>
-                                                <td className="px-5 py-3.5 text-foreground">{record.requests}</td>
-                                                <td className="px-5 py-3.5 text-foreground">{Math.round(record.tokens / record.requests)}</td>
-                                                <td className="px-5 py-3.5 text-right font-semibold text-success">${record.cost.toFixed(2)}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                    <tfoot>
-                                        <tr className="bg-muted/30 font-semibold">
-                                            <td className="px-5 py-3.5 text-foreground">Total</td>
-                                            <td className="px-5 py-3.5 text-foreground">{formatNum(usageHistory.reduce((s, r) => s + r.tokens, 0))}</td>
-                                            <td className="px-5 py-3.5 text-foreground">{formatNum(totalRequestsThisWeek)}</td>
-                                            <td className="px-5 py-3.5 text-foreground">{avgTokensPerRequest}</td>
-                                            <td className="px-5 py-3.5 text-right text-success">${totalCostThisWeek.toFixed(2)}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
+                {card.growth !== null && (
+                  <span className="text-muted-foreground">{card.suffix}</span>
                 )}
-
-                {/* ===== COST CALCULATOR TAB ===== */}
-                {activeTab === "calculator" && (
-                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                        {/* Calculator Input */}
-                        <div className="rounded-lg border border-border bg-card p-6">
-                            <div className="flex items-center gap-2 mb-6">
-                                <Calculator className="h-5 w-5 text-primary" />
-                                <h3 className="text-sm font-semibold text-foreground">Token Cost Calculator</h3>
-                            </div>
-
-                            <div className="space-y-5">
-                                {/* Token Input */}
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Number of Tokens</label>
-                                    <Input
-                                        type="number"
-                                        value={calcTokens}
-                                        onChange={(e) => setCalcTokens(e.target.value)}
-                                        placeholder="Enter token count"
-                                        className="bg-background"
-                                    />
-                                </div>
-
-                                {/* Model Selector */}
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium text-foreground">Select Model</label>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        {models.map((model) => (
-                                            <button
-                                                key={model.id}
-                                                onClick={() => setCalcModel(model)}
-                                                className={cn(
-                                                    "flex items-center gap-3 rounded-lg border p-3 transition-all duration-200",
-                                                    calcModel.id === model.id
-                                                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                                                        : "border-border bg-background hover:bg-muted/50"
-                                                )}
-                                            >
-                                                <model.icon className={cn("h-5 w-5", model.color)} />
-                                                <div className="text-left">
-                                                    <p className="text-xs font-semibold text-foreground">{model.name}</p>
-                                                    <p className="text-[10px] text-muted-foreground">{model.provider}</p>
-                                                </div>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Pricing Info */}
-                                <div className="rounded-lg bg-muted/30 p-4 space-y-2">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pricing Details</p>
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Input Cost / 1K tokens</span>
-                                        <span className="font-medium text-foreground">${calcModel.costPer1kInput.toFixed(5)}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Output Cost / 1K tokens</span>
-                                        <span className="font-medium text-foreground">${calcModel.costPer1kOutput.toFixed(5)}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Max Context Window</span>
-                                        <span className="font-medium text-foreground">{formatNum(calcModel.maxContext)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Calculator Result */}
-                        <div className="space-y-4">
-                            <div className="rounded-lg border border-border bg-card p-6">
-                                <div className="flex items-center gap-2 mb-6">
-                                    <DollarSign className="h-5 w-5 text-success" />
-                                    <h3 className="text-sm font-semibold text-foreground">Estimated Cost</h3>
-                                </div>
-
-                                <div className="space-y-4">
-                                    {/* Input Cost */}
-                                    <div className="rounded-lg bg-primary/5 border border-primary/10 p-4">
-                                        <p className="text-xs text-muted-foreground mb-1">Input Token Cost</p>
-                                        <div className="flex items-baseline gap-2">
-                                            <span className="text-3xl font-bold text-primary">${calcCostInput.toFixed(4)}</span>
-                                            <span className="text-xs text-muted-foreground">for {formatNum(parseInt(calcTokens || "0"))} tokens</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Output Cost */}
-                                    <div className="rounded-lg bg-success/5 border border-success/10 p-4">
-                                        <p className="text-xs text-muted-foreground mb-1">Output Token Cost</p>
-                                        <div className="flex items-baseline gap-2">
-                                            <span className="text-3xl font-bold text-success">${calcCostOutput.toFixed(4)}</span>
-                                            <span className="text-xs text-muted-foreground">for {formatNum(parseInt(calcTokens || "0"))} tokens</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Total */}
-                                    <div className="rounded-lg bg-foreground/5 border border-border p-4">
-                                        <p className="text-xs text-muted-foreground mb-1">Total (Input + Output)</p>
-                                        <div className="flex items-baseline gap-2">
-                                            <span className="text-3xl font-bold text-foreground">${(calcCostInput + calcCostOutput).toFixed(4)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Quick Estimates */}
-                            <div className="rounded-lg border border-border bg-card p-5">
-                                <div className="flex items-center gap-2 mb-4">
-                                    <Zap className="h-5 w-5 text-warning" />
-                                    <h3 className="text-sm font-semibold text-foreground">Quick Estimates — {calcModel.name}</h3>
-                                </div>
-                                <div className="space-y-2.5">
-                                    {[
-                                        { label: "100 requests/day (avg 500 tokens each)", tokens: 50000 },
-                                        { label: "1,000 requests/day", tokens: 500000 },
-                                        { label: "10,000 requests/day", tokens: 5000000 },
-                                    ].map((estimate, index) => {
-                                        const dailyCost = (estimate.tokens / 1000) * (calcModel.costPer1kInput + calcModel.costPer1kOutput);
-                                        return (
-                                            <div
-                                                key={index}
-                                                className="flex items-center justify-between rounded-lg border border-border p-3 transition-colors hover:bg-muted/20"
-                                            >
-                                                <div>
-                                                    <p className="text-xs font-medium text-foreground">{estimate.label}</p>
-                                                    <p className="text-[10px] text-muted-foreground">{formatNum(estimate.tokens)} tokens/day</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-sm font-bold text-foreground">${dailyCost.toFixed(2)}/day</p>
-                                                    <p className="text-[10px] text-muted-foreground">${(dailyCost * 30).toFixed(2)}/month</p>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+              </div>
             </div>
-        </DashboardLayout>
-    );
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex items-center border-b border-border">
+          <div className="flex gap-6">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={cn(
+                  "flex items-center gap-2 pb-3 text-sm font-medium transition-colors",
+                  activeTab === tab.key
+                    ? "border-b-2 border-primary text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <tab.icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ===== LIVE TOKENIZER ===== */}
+        {activeTab === "tokenizer" && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+            {/* Left */}
+            <div className="lg:col-span-3 space-y-4">
+              <div className="rounded-lg border border-border bg-card p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    <h3 className="text-sm font-semibold">Input Text</h3>
+                    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                      {MODEL.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCopy}
+                      disabled={!tokenResult}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setInputText("")}
+                      disabled={!inputText}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                <Textarea
+                  placeholder="Paste or type your text here to analyze tokens..."
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  className="min-h-[200px] resize-none border-border bg-background text-sm"
+                />
+
+                <div className="mt-3 flex items-center justify-between rounded-lg bg-muted/50 px-4 py-2.5 text-xs">
+                  <div className="flex items-center gap-6">
+                    <span className="text-muted-foreground">
+                      Characters:{" "}
+                      <span className="font-semibold text-foreground">
+                        {inputText.length}
+                      </span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      Words:{" "}
+                      <span className="font-semibold text-foreground">
+                        {countWords(inputText)}
+                      </span>
+                    </span>
+                    <span className="text-muted-foreground">
+                      Sentences:{" "}
+                      <span className="font-semibold text-foreground">
+                        {countSentences(inputText)}
+                      </span>
+                    </span>
+                  </div>
+                  {isAnalyzing && (
+                    <div className="flex items-center gap-2 text-primary">
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                      Analyzing...
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* Token Analysis */}
+              <div className="rounded-lg border border-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <h3 className="text-sm font-semibold">
+                    Token Analysis — {MODEL.name}
+                  </h3>
+                </div>
+
+                {tokenResult ? (
+                  <div className="space-y-4">
+                    <div className="text-center py-4 rounded-lg bg-primary/5 border border-primary/10">
+                      <p className="text-4xl font-bold text-primary">
+                        {formatNum(tokenResult.tokens)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Estimated Tokens
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      {[
+                        ["Characters", formatNum(tokenResult.characters)],
+                        ["Words", formatNum(tokenResult.words)],
+                        ["Sentences", String(tokenResult.sentences)],
+                        [
+                          "Tokens/Word",
+                          tokenResult.words > 0
+                            ? (tokenResult.tokens / tokenResult.words).toFixed(
+                                2,
+                              )
+                            : "—",
+                        ],
+                        [
+                          "Input Cost",
+                          `$${tokenResult.estimatedCostInput.toFixed(6)}`,
+                        ],
+                        [
+                          "Output Cost",
+                          `$${tokenResult.estimatedCostOutput.toFixed(6)}`,
+                        ],
+                        ["Max Context", formatNum(MODEL.maxContext)],
+                      ].map(([label, value]) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                        >
+                          <span className="text-sm text-muted-foreground">
+                            {label}
+                          </span>
+                          <span className="text-sm font-medium text-foreground">
+                            {value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5 text-xs">
+                        <span className="text-muted-foreground">
+                          Context Window Usage
+                        </span>
+                        <span className="font-medium">
+                          {tokenResult.contextUsagePct.toFixed(4)}%
+                        </span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all duration-500"
+                          style={{
+                            width: `${Math.min(tokenResult.contextUsagePct, 100)}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Cpu className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                    <p className="text-sm font-medium text-muted-foreground">
+                      No Text Analyzed
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Type or paste text to start analyzing.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Tokenizations */}
+              <div className="rounded-lg border border-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Clock className="h-5 w-5 text-primary" />
+                  <h3 className="text-sm font-semibold">Recent Chats</h3>
+                </div>
+                {loadingRecent ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : recent.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No recent chats.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {recent.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-3 rounded-lg border border-border p-3 hover:bg-muted/30 cursor-pointer transition-colors"
+                        onClick={() => setInputText(item.text)}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                          <Hash className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-foreground truncate">
+                            {item.text}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-semibold text-primary">
+                              {item.tokens} tokens
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              • {item.model}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              • {timeAgo(item.created_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== USAGE HISTORY ===== */}
+        {activeTab === "history" && (
+          <div className="space-y-6">
+            <div className="rounded-lg border border-border bg-card p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  <h3 className="text-sm font-semibold">
+                    Token Usage — Last 7 Days
+                  </h3>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-xs"
+                  onClick={handleExportHistory}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export CSV
+                </Button>
+              </div>
+
+              {loadingHistory ? (
+                <div className="flex justify-center h-48 items-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="flex items-end gap-3 h-48">
+                  {history.map((record, index) => {
+                    const height =
+                      maxTokens > 0 ? (record.tokens / maxTokens) * 100 : 0;
+                    return (
+                      <div
+                        key={index}
+                        className="flex-1 flex flex-col items-center gap-2 group"
+                      >
+                        <div className="relative w-full flex justify-center">
+                          <div className="absolute -top-16 left-1/2 -translate-x-1/2 hidden group-hover:block z-10">
+                            <div className="rounded-lg bg-foreground px-3 py-2 text-[10px] text-background shadow-lg whitespace-nowrap">
+                              <p className="font-semibold">
+                                {formatNum(record.tokens)} tokens
+                              </p>
+                              <p>
+                                {record.requests} requests • $
+                                {Number(record.cost).toFixed(4)}
+                              </p>
+                            </div>
+                          </div>
+                          <div
+                            className="w-full max-w-12 rounded-t-lg bg-primary/80 hover:bg-primary transition-all duration-300 cursor-pointer"
+                            style={{ height: `${height}%`, minHeight: "8px" }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-medium">
+                          {record.date}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="p-5 border-b border-border flex items-center gap-2">
+                <FileText className="h-5 w-5 text-primary" />
+                <h3 className="text-sm font-semibold">Detailed Usage</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      {[
+                        "Date",
+                        "Tokens Used",
+                        "Requests",
+                        "Avg Tokens/Req",
+                        "Cost",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          className={cn(
+                            "px-5 py-3 text-xs font-semibold text-muted-foreground",
+                            h === "Cost" ? "text-right" : "text-left",
+                          )}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((record, index) => (
+                      <tr
+                        key={index}
+                        className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
+                      >
+                        <td className="px-5 py-3.5 font-medium">
+                          {record.date}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          {formatNum(record.tokens)}
+                        </td>
+                        <td className="px-5 py-3.5">{record.requests}</td>
+                        <td className="px-5 py-3.5">
+                          {record.requests > 0
+                            ? Math.round(record.tokens / record.requests)
+                            : 0}
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-semibold text-success">
+                          ${Number(record.cost).toFixed(4)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-muted/30 font-semibold">
+                      <td className="px-5 py-3.5">Total</td>
+                      <td className="px-5 py-3.5">
+                        {formatNum(history.reduce((s, r) => s + r.tokens, 0))}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        {formatNum(totalRequestsWeek)}
+                      </td>
+                      <td className="px-5 py-3.5">{avgTokensPerReq}</td>
+                      <td className="px-5 py-3.5 text-right text-success">
+                        ${totalCostWeek.toFixed(4)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== COST CALCULATOR ===== */}
+        {activeTab === "calculator" && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="rounded-lg border border-border bg-card p-6">
+              <div className="flex items-center gap-2 mb-6">
+                <Calculator className="h-5 w-5 text-primary" />
+                <h3 className="text-sm font-semibold">Token Cost Calculator</h3>
+              </div>
+
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Number of Tokens
+                  </label>
+                  <Input
+                    type="number"
+                    value={calcTokens}
+                    onChange={(e) => setCalcTokens(e.target.value)}
+                    placeholder="Enter token count"
+                    className="bg-background"
+                  />
+                </div>
+
+                {/* Model info */}
+                <div className="rounded-lg border border-primary bg-primary/5 p-4 flex items-center gap-3">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {MODEL.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {MODEL.provider}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg bg-muted/30 p-4 space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Pricing Details
+                  </p>
+                  {[
+                    [
+                      "Input Cost / 1K tokens",
+                      `$${MODEL.costPer1kInput.toFixed(6)}`,
+                    ],
+                    [
+                      "Output Cost / 1K tokens",
+                      `$${MODEL.costPer1kOutput.toFixed(6)}`,
+                    ],
+                    ["Max Context Window", formatNum(MODEL.maxContext)],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-medium">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border bg-card p-6">
+                <div className="flex items-center gap-2 mb-6">
+                  <DollarSign className="h-5 w-5 text-success" />
+                  <h3 className="text-sm font-semibold">Estimated Cost</h3>
+                </div>
+
+                <div className="space-y-4">
+                  {[
+                    {
+                      label: "Input Token Cost",
+                      value: calcCostInput,
+                      color: "primary",
+                    },
+                    {
+                      label: "Output Token Cost",
+                      value: calcCostOutput,
+                      color: "success",
+                    },
+                    {
+                      label: "Total (Input + Output)",
+                      value: calcCostInput + calcCostOutput,
+                      color: "foreground",
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className={cn(
+                        "rounded-lg p-4 border",
+                        item.color === "primary"
+                          ? "bg-primary/5 border-primary/10"
+                          : item.color === "success"
+                            ? "bg-success/5 border-success/10"
+                            : "bg-foreground/5 border-border",
+                      )}
+                    >
+                      <p className="text-xs text-muted-foreground mb-1">
+                        {item.label}
+                      </p>
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className={cn(
+                            "text-3xl font-bold",
+                            item.color === "primary"
+                              ? "text-primary"
+                              : item.color === "success"
+                                ? "text-success"
+                                : "text-foreground",
+                          )}
+                        >
+                          ${item.value.toFixed(6)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          for {formatNum(parseInt(calcTokens || "0"))} tokens
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Zap className="h-5 w-5 text-warning" />
+                  <h3 className="text-sm font-semibold">
+                    Quick Estimates — {MODEL.name}
+                  </h3>
+                </div>
+                <div className="space-y-2.5">
+                  {[
+                    { label: "100 req/day (avg 500 tokens)", tokens: 50000 },
+                    { label: "1,000 req/day", tokens: 500000 },
+                    { label: "10,000 req/day", tokens: 5000000 },
+                  ].map((est, i) => {
+                    const daily =
+                      (est.tokens / 1000) *
+                      (MODEL.costPer1kInput + MODEL.costPer1kOutput);
+                    return (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/20 transition-colors"
+                      >
+                        <div>
+                          <p className="text-xs font-medium">{est.label}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {formatNum(est.tokens)} tokens/day
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold">
+                            ${daily.toFixed(4)}/day
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            ${(daily * 30).toFixed(2)}/month
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
+  );
 }

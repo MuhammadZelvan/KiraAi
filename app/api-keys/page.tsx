@@ -1,469 +1,399 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Dialog, DialogContent, DialogDescription,
+  DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-    Plus,
-    Filter,
-    ArrowUpDown,
-    MoreHorizontal,
-    ChevronDown,
-    ChevronUp,
-    Eye,
-    EyeOff,
-    Copy,
-    Trash2,
-    Edit,
+  Plus, MoreHorizontal, Eye, EyeOff, Copy, Trash2,
+  Loader2, Star, StarOff, Power, PowerOff, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
-import { AddAPIKeyDialog, type APIKey } from "@/components/apikeys/AddAPIKeyDialog";
-import { DatePickerDemo } from "@/components/apikeys/DatePicker";
+import {
+  getAdminModels, createAdminModel, updateAdminModel, deleteAdminModel,
+} from "@/lib/adminApi";
 
-interface KeySection {
-    id: string;
-    title: string;
-    type: "publishable" | "secret";
-    keys: APIKey[];
+interface AIModel {
+  id: string;
+  name: string;
+  provider: string;
+  model_id: string;
+  api_key: string;
+  base_url: string;
+  enabled: boolean;
+  is_default: boolean;
+  created_at: string;
 }
 
-type FilterType = "all" | "publishable" | "secret";
-type SortType = "name-asc" | "name-desc" | "date-new" | "date-old";
+const PROVIDER_PRESETS: Record<string, { base_url: string; placeholder: string }> = {
+  "xAI": { base_url: "https://api.x.ai/v1", placeholder: "grok-4-1-fast-non-reasoning" },
+  "OpenAI": { base_url: "https://api.openai.com/v1", placeholder: "gpt-4o" },
+  "Anthropic": { base_url: "https://api.anthropic.com/v1", placeholder: "claude-3-5-sonnet-20241022" },
+  "Google": { base_url: "https://generativelanguage.googleapis.com/v1beta", placeholder: "gemini-1.5-pro" },
+  "Custom": { base_url: "", placeholder: "model-name" },
+};
+
+const emptyForm = {
+  name: "",
+  provider: "xAI",
+  model_id: "",
+  api_key: "",
+  base_url: "https://api.x.ai/v1",
+  is_default: false,
+};
 
 export default function APIKeysPage() {
-    const { toast } = useToast();
-    const [openSections, setOpenSections] = useState<string[]>(["publishable", "secret"]);
-    const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-    const [visibleKeys, setVisibleKeys] = useState<string[]>([]);
-    const [addKeyDialogOpen, setAddKeyDialogOpen] = useState(false);
-    const [filter, setFilter] = useState<FilterType>("all");
-    const [sortBy, setSortBy] = useState<SortType>("name-asc");
+  const { toast } = useToast();
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [visibleKeys, setVisibleKeys] = useState<string[]>([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editModel, setEditModel] = useState<AIModel | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
 
-    const [keySections, setKeySections] = useState<KeySection[]>([
-        {
-            id: "publishable",
-            title: "Publishable key",
-            type: "publishable",
-            keys: [
-                {
-                    id: "pk_1",
-                    name: "Public Key",
-                    key: "pk_live_Y2xlcmsub2VyZmFkYS5jb0",
-                    type: "publishable",
-                    createdAt: "2024-01-15",
-                    canDelete: false
-                },
-            ],
-        },
-        {
-            id: "secret",
-            title: "Secret Keys",
-            type: "secret",
-            keys: [
-                {
-                    id: "sk_1",
-                    name: "Default Secret Key",
-                    key: "sk_live_Y2xlcmsub2VyZmFkYS5jb0",
-                    type: "secret",
-                    createdAt: "2024-01-10",
-                    canDelete: false
-                },
-                {
-                    id: "sk_2",
-                    name: "Test",
-                    key: "sk_live_Y2xlcmsub2VyZmFkYS5jb0",
-                    type: "secret",
-                    createdAt: "2024-02-01",
-                    canDelete: false
-                },
-                {
-                    id: "sk_3",
-                    name: "Testing Token",
-                    key: "sk_live_Y2xlcmsub2VyZmFkYS5jb0",
-                    type: "secret",
-                    createdAt: "2024-03-15",
-                    canDelete: true
-                },
-            ],
-        },
-    ]);
+  const fetchModels = async () => {
+    try {
+      const data = await getAdminModels();
+      setModels(data);
+    } catch {
+      toast({ title: "Failed to load models", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const toggleSection = (sectionId: string) => {
-        setOpenSections((prev) =>
-            prev.includes(sectionId)
-                ? prev.filter((id) => id !== sectionId)
-                : [...prev, sectionId]
-        );
-    };
+  useEffect(() => { fetchModels(); }, []);
 
-    const toggleKeySelection = (keyId: string) => {
-        setSelectedKeys((prev) =>
-            prev.includes(keyId)
-                ? prev.filter((id) => id !== keyId)
-                : [...prev, keyId]
-        );
-    };
-
-    const toggleKeyVisibility = (keyId: string) => {
-        setVisibleKeys((prev) =>
-            prev.includes(keyId)
-                ? prev.filter((id) => id !== keyId)
-                : [...prev, keyId]
-        );
-    };
-
-    const copyToClipboard = (key: string, name: string) => {
-        navigator.clipboard.writeText(key);
-        toast({
-            title: "Copied!",
-            description: `API key "${name}" copied to clipboard`,
-        });
-    };
-
-    const maskKey = (key: string) => {
-        return key.substring(0, 12) + "..." + key.substring(key.length - 4);
-    };
-
-    const handleAddKey = (newKey: APIKey) => {
-        setKeySections(sections =>
-            sections.map(section => {
-                if (section.type === newKey.type) {
-                    return {
-                        ...section,
-                        keys: [...section.keys, newKey]
-                    };
-                }
-                return section;
-            })
-        );
-    };
-
-    const handleDeleteKey = (keyId: string) => {
-        setKeySections(sections =>
-            sections.map(section => ({
-                ...section,
-                keys: section.keys.filter(k => k.id !== keyId)
-            }))
-        );
-        toast({
-            title: "API Key Deleted",
-            description: "The API key has been permanently deleted.",
-            variant: "destructive",
-        });
-    };
-
-    const handleBulkDelete = () => {
-        if (selectedKeys.length === 0) {
-            toast({
-                title: "No Keys Selected",
-                description: "Please select at least one API key to delete.",
-                variant: "destructive",
-            });
-            return;
-        }
-
-        setKeySections(sections =>
-            sections.map(section => ({
-                ...section,
-                keys: section.keys.filter(k => !selectedKeys.includes(k.id) || !k.canDelete)
-            }))
-        );
-
-        toast({
-            title: "Keys Deleted",
-            description: `${selectedKeys.length} API key(s) have been deleted.`,
-        });
-
-        setSelectedKeys([]);
-    };
-
-    // Get all keys for filtering and sorting
-    const getAllKeys = () => {
-        let allKeys: (APIKey & { sectionType: "publishable" | "secret" })[] = [];
-        keySections.forEach(section => {
-            section.keys.forEach(key => {
-                allKeys.push({ ...key, sectionType: section.type });
-            });
-        });
-
-        // Filter
-        if (filter !== "all") {
-            allKeys = allKeys.filter(k => k.type === filter);
-        }
-
-        // Sort
-        allKeys.sort((a, b) => {
-            switch (sortBy) {
-                case "name-asc":
-                    return a.name.localeCompare(b.name);
-                case "name-desc":
-                    return b.name.localeCompare(a.name);
-                case "date-new":
-                    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-                case "date-old":
-                    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-                default:
-                    return 0;
-            }
-        });
-
-        return allKeys;
-    };
-
-    const filteredKeys = getAllKeys();
-
-    return (
-        <DashboardLayout>
-            <div className="mx-auto max-w-7xl space-y-6">
-                {/* Header */}
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold text-foreground">API Keys</h1>
-                        <p className="text-muted-foreground">
-                            Manage your API keys and access tokens securely.
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <DatePickerDemo />
-                        <Button
-                            className="gap-2 bg-primary hover:bg-primary/90"
-                            onClick={() => setAddKeyDialogOpen(true)}
-                        >
-                            <Plus className="h-4 w-4" />
-                            Add API Keys
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex items-center justify-between border-b border-border">
-                    <div className="flex gap-6">
-                        <button className="border-b-2 border-primary pb-3 text-sm font-medium text-foreground">
-                            API Keys
-                        </button>
-                    </div>
-                    <div className="flex items-center gap-2 pb-3">
-                        {/* Filter Dropdown */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm" className="gap-2">
-                                    <Filter className="h-4 w-4" />
-                                    Filter
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setFilter("all")}>
-                                    All Keys
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setFilter("publishable")}>
-                                    Publishable Only
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setFilter("secret")}>
-                                    Secret Only
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        {/* Sort Dropdown */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm" className="gap-2">
-                                    <ArrowUpDown className="h-4 w-4" />
-                                    Sort by
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => setSortBy("name-asc")}>
-                                    Name (A-Z)
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setSortBy("name-desc")}>
-                                    Name (Z-A)
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => setSortBy("date-new")}>
-                                    Date (Newest)
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setSortBy("date-old")}>
-                                    Date (Oldest)
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-
-                        {/* More Options */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                    onClick={handleBulkDelete}
-                                    className="text-destructive focus:text-destructive"
-                                    disabled={selectedKeys.length === 0}
-                                >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Delete Selected ({selectedKeys.length})
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={() => setSelectedKeys([])}>
-                                    Clear Selection
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                </div>
-
-                {/* Key Sections */}
-                <div className="space-y-2">
-                    {keySections.map((section) => {
-                        const sectionKeys = section.keys.filter(key => {
-                            if (filter === "all") return true;
-                            return key.type === filter;
-                        });
-
-                        if (sectionKeys.length === 0 && filter !== "all") return null;
-
-                        return (
-                            <Collapsible
-                                key={section.id}
-                                open={openSections.includes(section.id)}
-                                onOpenChange={() => toggleSection(section.id)}
-                            >
-                                <CollapsibleTrigger className="flex w-full items-center gap-3 rounded-lg bg-muted/30 px-4 py-3 hover:bg-muted/50">
-                                    {openSections.includes(section.id) ? (
-                                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                                    ) : (
-                                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                    )}
-                                    <div
-                                        className={cn(
-                                            "h-2 w-2 rounded-full",
-                                            section.type === "publishable" ? "bg-destructive" : "bg-primary"
-                                        )}
-                                    />
-                                    <span className="font-medium text-foreground">{section.title}</span>
-                                    <span className="text-sm text-muted-foreground">({sectionKeys.length})</span>
-                                </CollapsibleTrigger>
-                                <CollapsibleContent>
-                                    <div className="space-y-1 pt-1">
-                                        {sectionKeys.map((apiKey) => (
-                                            <div
-                                                key={apiKey.id}
-                                                className="flex items-center justify-between px-4 py-3 hover:bg-muted/20 rounded-md"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <Checkbox
-                                                        checked={selectedKeys.includes(apiKey.id)}
-                                                        onCheckedChange={() => toggleKeySelection(apiKey.id)}
-                                                    />
-                                                    <div>
-                                                        <span className="text-sm font-medium text-foreground">{apiKey.name}</span>
-                                                        <p className="text-xs text-muted-foreground">
-                                                            Created: {new Date(apiKey.createdAt).toLocaleDateString()}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <code className="rounded bg-muted px-3 py-1.5 text-sm text-muted-foreground font-mono">
-                                                        {visibleKeys.includes(apiKey.id)
-                                                            ? apiKey.key
-                                                            : maskKey(apiKey.key)}
-                                                    </code>
-                                                    {section.type === "secret" && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => toggleKeyVisibility(apiKey.id)}
-                                                        >
-                                                            {visibleKeys.includes(apiKey.id) ? (
-                                                                <EyeOff className="h-4 w-4 text-muted-foreground" />
-                                                            ) : (
-                                                                <Eye className="h-4 w-4 text-muted-foreground" />
-                                                            )}
-                                                        </Button>
-                                                    )}
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="gap-2"
-                                                        onClick={() => copyToClipboard(apiKey.key, apiKey.name)}
-                                                    >
-                                                        <Copy className="h-4 w-4" />
-                                                        Copy
-                                                    </Button>
-
-                                                    {/* Three Dots Menu */}
-                                                    <DropdownMenu>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <Button variant="ghost" size="sm">
-                                                                <MoreHorizontal className="h-4 w-4" />
-                                                            </Button>
-                                                        </DropdownMenuTrigger>
-                                                        <DropdownMenuContent align="end">
-                                                            <DropdownMenuItem onClick={() => copyToClipboard(apiKey.key, apiKey.name)}>
-                                                                <Copy className="mr-2 h-4 w-4" />
-                                                                Copy Key
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuItem
-                                                                onClick={() => toggleKeyVisibility(apiKey.id)}
-                                                                disabled={section.type === "publishable"}
-                                                            >
-                                                                {visibleKeys.includes(apiKey.id) ? (
-                                                                    <>
-                                                                        <EyeOff className="mr-2 h-4 w-4" />
-                                                                        Hide Key
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Eye className="mr-2 h-4 w-4" />
-                                                                        Show Key
-                                                                    </>
-                                                                )}
-                                                            </DropdownMenuItem>
-                                                            <DropdownMenuSeparator />
-                                                            {apiKey.canDelete && (
-                                                                <DropdownMenuItem
-                                                                    onClick={() => handleDeleteKey(apiKey.id)}
-                                                                    className="text-destructive focus:text-destructive"
-                                                                >
-                                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                                    Delete Key
-                                                                </DropdownMenuItem>
-                                                            )}
-                                                        </DropdownMenuContent>
-                                                    </DropdownMenu>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </CollapsibleContent>
-                            </Collapsible>
-                        );
-                    })}
-                </div>
-
-                {/* Add API Key Dialog */}
-                <AddAPIKeyDialog
-                    open={addKeyDialogOpen}
-                    onOpenChange={setAddKeyDialogOpen}
-                    onAddKey={handleAddKey}
-                />
-            </div>
-        </DashboardLayout>
+  const toggleVisible = (id: string) =>
+    setVisibleKeys((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+
+  const maskKey = (key: string) =>
+    key.slice(0, 8) + "••••••••••••" + key.slice(-4);
+
+  const copyKey = (key: string, name: string) => {
+    navigator.clipboard.writeText(key);
+    toast({ title: "Copied!", description: `API key for "${name}" copied.` });
+  };
+
+  const openAdd = () => {
+    setEditModel(null);
+    setForm(emptyForm);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (model: AIModel) => {
+    setEditModel(model);
+    setForm({
+      name: model.name,
+      provider: model.provider,
+      model_id: model.model_id,
+      api_key: model.api_key,
+      base_url: model.base_url,
+      is_default: model.is_default,
+    });
+    setDialogOpen(true);
+  };
+
+  const handleProviderChange = (provider: string) => {
+    const preset = PROVIDER_PRESETS[provider] ?? PROVIDER_PRESETS.Custom;
+    setForm((f) => ({ ...f, provider, base_url: preset.base_url }));
+  };
+
+  const handleSave = async () => {
+    if (!form.name || !form.model_id || !form.api_key || !form.base_url) {
+      toast({ title: "All fields are required", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editModel) {
+        await updateAdminModel(editModel.id, form);
+        toast({ title: "Model updated" });
+      } else {
+        await createAdminModel(form);
+        toast({ title: "Model added" });
+      }
+      setDialogOpen(false);
+      fetchModels();
+    } catch {
+      toast({ title: "Failed to save model", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleEnabled = async (model: AIModel) => {
+    try {
+      await updateAdminModel(model.id, { enabled: !model.enabled });
+      toast({ title: model.enabled ? "Model disabled" : "Model enabled" });
+      fetchModels();
+    } catch {
+      toast({ title: "Failed to update", variant: "destructive" });
+    }
+  };
+
+  const handleSetDefault = async (model: AIModel) => {
+    if (model.is_default) return;
+    try {
+      await updateAdminModel(model.id, { is_default: true });
+      toast({ title: `"${model.name}" set as default model` });
+      fetchModels();
+    } catch {
+      toast({ title: "Failed to set default", variant: "destructive" });
+    }
+  };
+
+  const handleDelete = async (model: AIModel) => {
+    try {
+      await deleteAdminModel(model.id);
+      toast({ title: "Model deleted", variant: "destructive" });
+      fetchModels();
+    } catch {
+      toast({ title: "Failed to delete", variant: "destructive" });
+    }
+  };
+
+  return (
+    <DashboardLayout>
+      <div className="mx-auto max-w-5xl space-y-6">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">AI Models</h1>
+            <p className="text-muted-foreground">
+              Manage AI models and their API keys. Users can select from enabled models in chat.
+            </p>
+          </div>
+          <Button className="gap-2" onClick={openAdd}>
+            <Plus className="h-4 w-4" />
+            Add Model
+          </Button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { label: "Total Models", value: models.length },
+            { label: "Enabled", value: models.filter((m) => m.enabled).length },
+            { label: "Disabled", value: models.filter((m) => !m.enabled).length },
+          ].map((s) => (
+            <div key={s.label} className="rounded-lg border border-border bg-card p-4">
+              <p className="text-sm text-muted-foreground">{s.label}</p>
+              <p className="text-2xl font-bold text-foreground">{s.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Models Table */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="border-b border-border px-5 py-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">Configured Models</h2>
+            <p className="text-xs text-muted-foreground">{models.length} models</p>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : models.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground text-sm">
+              No models configured. Add one to get started.
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {models.map((model) => (
+                <div key={model.id} className="flex items-center gap-4 px-5 py-4 hover:bg-muted/20 transition-colors">
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-foreground">{model.name}</p>
+                      {model.is_default && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          Default
+                        </span>
+                      )}
+                      <span className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                        model.enabled
+                          ? "bg-success/10 text-success"
+                          : "bg-muted text-muted-foreground"
+                      )}>
+                        {model.enabled ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>{model.provider}</span>
+                      <span>•</span>
+                      <code className="font-mono">{model.model_id}</code>
+                    </div>
+                  </div>
+
+                  {/* API Key */}
+                  <div className="flex items-center gap-2">
+                    <code className="rounded bg-muted px-3 py-1.5 text-xs font-mono text-muted-foreground">
+                      {visibleKeys.includes(model.id) ? model.api_key : maskKey(model.api_key)}
+                    </code>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => toggleVisible(model.id)}>
+                      {visibleKeys.includes(model.id)
+                        ? <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+                        : <Eye className="h-3.5 w-3.5 text-muted-foreground" />}
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => copyKey(model.api_key, model.name)}>
+                      <Copy className="h-3.5 w-3.5" />
+                      Copy
+                    </Button>
+                  </div>
+
+                  {/* Actions */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => openEdit(model)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit
+                      </DropdownMenuItem>
+                      {!model.is_default && (
+                        <DropdownMenuItem onClick={() => handleSetDefault(model)}>
+                          <Star className="mr-2 h-4 w-4" />
+                          Set as Default
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onClick={() => handleToggleEnabled(model)}>
+                        {model.enabled
+                          ? <><PowerOff className="mr-2 h-4 w-4" /> Disable</>
+                          : <><Power className="mr-2 h-4 w-4" /> Enable</>}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => handleDelete(model)}
+                        className="text-destructive focus:text-destructive"
+                        disabled={model.is_default}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>{editModel ? "Edit Model" : "Add AI Model"}</DialogTitle>
+            <DialogDescription>
+              {editModel ? "Update model configuration." : "Add a new AI model with its API key."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            {/* Display Name */}
+            <div className="grid gap-2">
+              <Label>Display Name <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder="e.g. Grok 4.1 Fast"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </div>
+
+            {/* Provider */}
+            <div className="grid gap-2">
+              <Label>Provider</Label>
+              <div className="flex flex-wrap gap-2">
+                {Object.keys(PROVIDER_PRESETS).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => handleProviderChange(p)}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                      form.provider === p
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Model ID */}
+            <div className="grid gap-2">
+              <Label>Model ID <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder={PROVIDER_PRESETS[form.provider]?.placeholder ?? "model-id"}
+                value={form.model_id}
+                onChange={(e) => setForm({ ...form, model_id: e.target.value })}
+                className="font-mono text-sm"
+              />
+            </div>
+
+            {/* API Key */}
+            <div className="grid gap-2">
+              <Label>API Key <span className="text-destructive">*</span></Label>
+              <Input
+                type="password"
+                placeholder="sk-..."
+                value={form.api_key}
+                onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                className="font-mono text-sm"
+              />
+            </div>
+
+            {/* Base URL */}
+            <div className="grid gap-2">
+              <Label>Base URL <span className="text-destructive">*</span></Label>
+              <Input
+                placeholder="https://api.x.ai/v1"
+                value={form.base_url}
+                onChange={(e) => setForm({ ...form, base_url: e.target.value })}
+                className="font-mono text-sm"
+              />
+            </div>
+
+            {/* Set as Default */}
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_default}
+                onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
+                className="h-4 w-4 rounded border-border"
+              />
+              <span className="text-sm text-foreground">Set as default model</span>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : editModel ? "Save Changes" : "Add Model"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </DashboardLayout>
+  );
 }

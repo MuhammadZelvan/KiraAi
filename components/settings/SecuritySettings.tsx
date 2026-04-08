@@ -1,340 +1,283 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
-    Shield,
-    Key,
-    Globe,
-    Clock,
-    Monitor,
-    MapPin,
-    LogOut,
-    Save,
-    AlertTriangle,
-    CheckCircle2,
+  Shield, Key, Globe, Clock, Monitor, MapPin,
+  LogOut, Save, AlertTriangle, CheckCircle2, Loader2, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
+import { getAdminLoginHistory, getSuspiciousActivity, adminLogout } from "@/lib/adminApi";
+
+interface LoginEntry {
+  id: string;
+  email: string;
+  method: string;
+  success: boolean;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+}
+
+interface SuspiciousEntry {
+  ip_address: string;
+  attempts: number;
+  last_attempt: string;
+}
+
+function parseDevice(userAgent: string) {
+  if (!userAgent || userAgent === "—") return "Unknown Device";
+  if (userAgent.includes("Chrome")) return "Chrome";
+  if (userAgent.includes("Firefox")) return "Firefox";
+  if (userAgent.includes("Safari")) return "Safari";
+  if (userAgent.includes("Mobile")) return "Mobile Browser";
+  return userAgent.slice(0, 40);
+}
+
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return new Date(dateStr).toLocaleDateString();
+}
 
 export function SecuritySettings() {
-    const { toast } = useToast();
+  const { toast } = useToast();
+  const router = useRouter();
 
-    const [sessionTimeout, setSessionTimeout] = useState("60");
-    const [twoFactor, setTwoFactor] = useState(false);
-    const [ipWhitelist, setIpWhitelist] = useState(true);
-    const [whitelistIPs, setWhitelistIPs] = useState("192.168.1.0/24");
-    const [loginAlerts, setLoginAlerts] = useState(true);
+  const [loginHistory, setLoginHistory] = useState<LoginEntry[]>([]);
+  const [suspicious, setSuspicious] = useState<SuspiciousEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [tokenRegenConfirm, setTokenRegenConfirm] = useState(false);
 
-    const loginHistory = [
-        { id: "1", device: "Windows 11 — Chrome", ip: "192.168.1.101", location: "Jakarta, ID", time: "Today, 08:24 AM", status: "success" as const },
-        { id: "2", device: "Windows 11 — Chrome", ip: "192.168.1.101", location: "Jakarta, ID", time: "Yesterday, 09:12 AM", status: "success" as const },
-        { id: "3", device: "macOS — Safari", ip: "103.45.67.89", location: "Surabaya, ID", time: "Feb 22, 2:45 PM", status: "success" as const },
-        { id: "4", device: "Linux — Firefox", ip: "185.22.33.44", location: "Unknown", time: "Feb 21, 11:30 PM", status: "failed" as const },
-        { id: "5", device: "Windows 11 — Chrome", ip: "192.168.1.101", location: "Jakarta, ID", time: "Feb 20, 08:00 AM", status: "success" as const },
-    ];
+  // UI-only settings
+  const [twoFactor, setTwoFactor] = useState(false);
+  const [ipWhitelist, setIpWhitelist] = useState(false);
+  const [loginAlerts, setLoginAlerts] = useState(true);
 
-    const activeSessions = [
-        { id: "1", device: "Windows 11 — Chrome", ip: "192.168.1.101", location: "Jakarta, ID", lastActive: "Now", current: true },
-        { id: "2", device: "Mobile — LyraAI App", ip: "192.168.1.105", location: "Jakarta, ID", lastActive: "2 hours ago", current: false },
-    ];
+  const fetchData = async () => {
+    setLoadingHistory(true);
+    try {
+      const [history, susp] = await Promise.all([
+        getAdminLoginHistory(),
+        getSuspiciousActivity(),
+      ]);
+      setLoginHistory(history);
+      setSuspicious(susp);
+    } catch {
+      toast({ title: "Failed to load security data", variant: "destructive" });
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
-    const handleSave = () => {
-        toast({
-            title: "Security Updated",
-            description: "Security settings have been saved successfully.",
-        });
-    };
+  useEffect(() => { fetchData(); }, []);
 
-    const handleReset = () => {
-        setSessionTimeout("60");
-        setTwoFactor(false);
-        setIpWhitelist(true);
-        setWhitelistIPs("192.168.1.0/24");
-        setLoginAlerts(true);
-        toast({
-            title: "Security Reset",
-            description: "Security settings restored to defaults.",
-        });
-    };
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await adminLogout();
+      router.push("/login");
+    } catch {
+      toast({ title: "Logout failed", variant: "destructive" });
+      setLoggingOut(false);
+    }
+  };
 
-    const [tokenRegenConfirm, setTokenRegenConfirm] = useState(false);
-    const router = useRouter();
+  const handleRegenerateToken = () => {
+    if (!tokenRegenConfirm) {
+      setTokenRegenConfirm(true);
+      toast({
+        title: "Confirm Token Regeneration",
+        description: "Click again to confirm. This will log you out.",
+      });
+      setTimeout(() => setTokenRegenConfirm(false), 5000);
+      return;
+    }
+    // Regenerate = force logout (JWT is stateless, clearing cookie = new session on next login)
+    toast({ title: "Session invalidated", description: "Redirecting to login..." });
+    setTokenRegenConfirm(false);
+    setTimeout(() => handleLogout(), 1000);
+  };
 
-    const handleRegenerateToken = () => {
-        if (!tokenRegenConfirm) {
-            setTokenRegenConfirm(true);
-            toast({
-                title: "Confirm Token Regeneration",
-                description: "Click 'Regenerate Token' again to confirm. This will log you out.",
-            });
-            setTimeout(() => setTokenRegenConfirm(false), 5000);
-            return;
-        }
-        toast({
-            title: "Token Regenerated",
-            description: "New token generated. Redirecting to login...",
-        });
-        setTokenRegenConfirm(false);
-        setTimeout(() => router.push("/login"), 1500);
-    };
+  return (
+    <div className="flex-1 space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">Security</h2>
+        <p className="text-sm text-muted-foreground">Manage authentication, sessions, and access controls.</p>
+      </div>
 
-    const handleLogout = () => {
-        toast({
-            title: "Logged Out",
-            description: "Your session has been terminated.",
-        });
-        setTimeout(() => router.push("/login"), 500);
-    };
-
-    const handleRevokeSession = (id: string) => {
-        toast({
-            title: "Session Revoked",
-            description: `Session ${id} has been terminated.`,
-        });
-    };
-
-    const handleRevokeAll = () => {
-        toast({
-            title: "All Sessions Revoked",
-            description: "All other sessions have been terminated.",
-        });
-    };
-
-    return (
-        <div className="flex-1 space-y-8">
-            {/* Header */}
-            <div>
-                <h2 className="text-lg font-semibold text-foreground">Security</h2>
-                <p className="text-sm text-muted-foreground">
-                    Manage authentication, sessions, and access controls.
-                </p>
-            </div>
-
-            {/* Authentication */}
-            <div className="space-y-4 border-t border-border pt-6">
-                <div className="border-b border-border pb-2">
-                    <h3 className="text-base font-semibold text-foreground">Authentication</h3>
-                    <p className="text-sm text-muted-foreground">Manage your authentication token and 2FA.</p>
-                </div>
-
-                {/* Token Auth Info */}
-                <div className="rounded-lg border border-border p-4 bg-muted/20">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                            <Key className="h-5 w-5 text-primary" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-semibold text-foreground">Token Authentication</p>
-                            <p className="text-xs text-muted-foreground">Your admin access is managed via a secure token.</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3 mt-3">
-                        <Input
-                            type="password"
-                            value="kira_admin_tk_••••••••••••"
-                            disabled
-                            className="flex-1 font-mono text-xs bg-background"
-                        />
-                        <Button
-                            variant={tokenRegenConfirm ? "destructive" : "outline"}
-                            size="sm"
-                            onClick={handleRegenerateToken}
-                        >
-                            {tokenRegenConfirm ? "⚠️ Confirm Regenerate" : "Regenerate Token"}
-                        </Button>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground mt-2">
-                        ⚠️ Regenerating will invalidate the current token. You will need to re-login.
-                    </p>
-                </div>
-
-                {/* 2FA */}
-                <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10">
-                            <Shield className="h-5 w-5 text-success" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-foreground">Two-Factor Authentication</p>
-                            <p className="text-xs text-muted-foreground">Add an extra layer of security to your account.</p>
-                        </div>
-                    </div>
-                    <Switch checked={twoFactor} onCheckedChange={setTwoFactor} />
-                </div>
-
-                {/* Login Alerts */}
-                <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
-                            <AlertTriangle className="h-5 w-5 text-warning" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-foreground">Login Alerts</p>
-                            <p className="text-xs text-muted-foreground">Get notified when someone logs in from a new device.</p>
-                        </div>
-                    </div>
-                    <Switch checked={loginAlerts} onCheckedChange={setLoginAlerts} />
-                </div>
-            </div>
-
-            {/* Session Management */}
-            <div className="space-y-4">
-                <div className="border-b border-border pb-2">
-                    <h3 className="text-base font-semibold text-foreground">Session Management</h3>
-                    <p className="text-sm text-muted-foreground">Control session timeout and active sessions.</p>
-                </div>
-
-                <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        Session Timeout
-                    </label>
-                    <div className="flex items-center gap-2 max-w-sm">
-                        <Input
-                            type="number"
-                            value={sessionTimeout}
-                            onChange={(e) => setSessionTimeout(e.target.value)}
-                            className="w-24"
-                            min="5"
-                            max="480"
-                        />
-                        <span className="text-sm text-muted-foreground">minutes of inactivity</span>
-                    </div>
-                </div>
-
-                {/* IP Whitelist */}
-                <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            IP Whitelist
-                        </label>
-                        <Switch checked={ipWhitelist} onCheckedChange={setIpWhitelist} />
-                    </div>
-                    {ipWhitelist && (
-                        <div className="space-y-2">
-                            <Input
-                                value={whitelistIPs}
-                                onChange={(e) => setWhitelistIPs(e.target.value)}
-                                placeholder="e.g. 192.168.1.0/24, 10.0.0.1"
-                                className="max-w-md font-mono text-xs"
-                            />
-                            <p className="text-[10px] text-muted-foreground">Comma-separated IPs or CIDR ranges. Only these IPs can access the dashboard.</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Active Sessions */}
-                <div className="space-y-3 mt-4">
-                    <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-foreground">Active Sessions</p>
-                        <Button variant="outline" size="sm" className="text-xs text-destructive hover:text-destructive" onClick={handleRevokeAll}>
-                            Revoke All Others
-                        </Button>
-                    </div>
-                    <div className="space-y-2">
-                        {activeSessions.map((session) => (
-                            <div key={session.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                                <div className="flex items-center gap-3">
-                                    <Monitor className="h-4 w-4 text-muted-foreground" />
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <p className="text-sm font-medium text-foreground">{session.device}</p>
-                                            {session.current && (
-                                                <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
-                                                    Current
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                            <span>{session.ip}</span>
-                                            <span>•</span>
-                                            <span>{session.location}</span>
-                                            <span>•</span>
-                                            <span>{session.lastActive}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                {!session.current && (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-xs text-destructive hover:text-destructive"
-                                        onClick={() => handleRevokeSession(session.id)}
-                                    >
-                                        Revoke
-                                    </Button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            {/* Login History */}
-            <div className="space-y-4">
-                <div className="border-b border-border pb-2">
-                    <h3 className="text-base font-semibold text-foreground">Login History</h3>
-                    <p className="text-sm text-muted-foreground">Recent login attempts to your admin account.</p>
-                </div>
-
-                <div className="space-y-2">
-                    {loginHistory.map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between rounded-lg border border-border p-3 transition-colors hover:bg-muted/20">
-                            <div className="flex items-center gap-3">
-                                {entry.status === "success" ? (
-                                    <CheckCircle2 className="h-4 w-4 text-success" />
-                                ) : (
-                                    <AlertTriangle className="h-4 w-4 text-destructive" />
-                                )}
-                                <div>
-                                    <p className="text-sm font-medium text-foreground">{entry.device}</p>
-                                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                        <span>{entry.ip}</span>
-                                        <span>•</span>
-                                        <MapPin className="h-3 w-3" />
-                                        <span>{entry.location}</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-xs text-muted-foreground">{entry.time}</p>
-                                <span className={cn(
-                                    "text-[10px] font-semibold",
-                                    entry.status === "success" ? "text-success" : "text-destructive"
-                                )}>
-                                    {entry.status === "success" ? "Success" : "Failed"}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Logout */}
-            <div className="flex items-center justify-between border-t border-border pt-4">
-                <div>
-                    <h3 className="font-medium text-foreground">Log Out</h3>
-                    <p className="text-sm text-muted-foreground">Sign out of this admin session.</p>
-                </div>
-                <Button variant="outline" className="gap-2" onClick={handleLogout}>
-                    <LogOut className="h-4 w-4" />
-                    Log Out
-                </Button>
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-between pt-6 border-t border-border">
-                <Button variant="outline" onClick={handleReset}>Reset to Default</Button>
-                <Button className="gap-2 bg-primary hover:bg-primary/90" onClick={handleSave}>
-                    <Save className="h-4 w-4" />
-                    Save Changes
-                </Button>
-            </div>
+      {/* Suspicious Activity Banner */}
+      {suspicious.length > 0 && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <p className="text-sm font-semibold text-destructive">Suspicious Activity Detected</p>
+          </div>
+          <div className="space-y-1">
+            {suspicious.map((s: any) => (
+              <p key={s.ip_address} className="text-xs text-muted-foreground ml-6">
+                {s.attempts} failed attempts from <code className="font-mono">{s.ip_address}</code> in the last hour
+              </p>
+            ))}
+          </div>
         </div>
-    );
+      )}
+
+      {/* Authentication */}
+      <div className="space-y-4 border-t border-border pt-6">
+        <div className="border-b border-border pb-2">
+          <h3 className="text-base font-semibold text-foreground">Authentication</h3>
+        </div>
+
+        {/* Token */}
+        <div className="rounded-lg border border-border p-4 bg-muted/20">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <Key className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Session Token</p>
+              <p className="text-xs text-muted-foreground">Your admin session is managed via a secure JWT cookie.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 rounded-md border border-border bg-background px-3 py-2 font-mono text-xs text-muted-foreground">
+              access_token: ••••••••••••••••
+            </div>
+            <Button
+              variant={tokenRegenConfirm ? "destructive" : "outline"}
+              size="sm"
+              onClick={handleRegenerateToken}
+            >
+              {tokenRegenConfirm ? "⚠️ Confirm" : "Invalidate Session"}
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Invalidating will clear your session cookie. You will need to log in again.
+          </p>
+        </div>
+
+        {/* 2FA — UI only */}
+        <div className="flex items-center justify-between rounded-lg border border-border p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10">
+              <Shield className="h-5 w-5 text-success" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-foreground">Two-Factor Authentication</p>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Coming soon</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Add an extra layer of security to your account.</p>
+            </div>
+          </div>
+          <Switch checked={twoFactor} onCheckedChange={setTwoFactor} disabled />
+        </div>
+
+        {/* Login Alerts — UI only */}
+        <div className="flex items-center justify-between rounded-lg border border-border p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">Login Alerts</p>
+              <p className="text-xs text-muted-foreground">Get notified when someone logs in from a new device.</p>
+            </div>
+          </div>
+          <Switch checked={loginAlerts} onCheckedChange={setLoginAlerts} />
+        </div>
+
+        {/* IP Whitelist — UI only */}
+        <div className="flex items-center justify-between rounded-lg border border-border p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <Globe className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-foreground">IP Whitelist</p>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">Coming soon</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Restrict dashboard access to specific IP addresses.</p>
+            </div>
+          </div>
+          <Switch checked={ipWhitelist} onCheckedChange={setIpWhitelist} disabled />
+        </div>
+      </div>
+
+      {/* Login History — Real data */}
+      <div className="space-y-4">
+        <div className="border-b border-border pb-2 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-foreground">Login History</h3>
+            <p className="text-sm text-muted-foreground">Recent admin login attempts.</p>
+          </div>
+          <Button variant="outline" size="sm" className="gap-2 text-xs" onClick={fetchData} disabled={loadingHistory}>
+            {loadingHistory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
+
+        {loadingHistory ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : loginHistory.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No login history found.</p>
+        ) : (
+          <div className="space-y-2">
+            {loginHistory.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/20 transition-colors">
+                <div className="flex items-center gap-3">
+                  {entry.success
+                    ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                    : <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />}
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{entry.email}</p>
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+                      <span>{parseDevice(entry.user_agent)}</span>
+                      <span>•</span>
+                      <span className="font-mono">{entry.ip_address}</span>
+                      <span>•</span>
+                      <span className="capitalize">{entry.method}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-muted-foreground">{timeAgo(entry.created_at)}</p>
+                  <span className={cn(
+                    "text-[10px] font-semibold",
+                    entry.success ? "text-success" : "text-destructive"
+                  )}>
+                    {entry.success ? "Success" : "Failed"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Logout */}
+      <div className="flex items-center justify-between rounded-lg border border-border p-4">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Log Out</p>
+          <p className="text-xs text-muted-foreground">Sign out of this admin session.</p>
+        </div>
+        <Button variant="outline" className="gap-2" onClick={handleLogout} disabled={loggingOut}>
+          {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+          Log Out
+        </Button>
+      </div>
+    </div>
+  );
 }
